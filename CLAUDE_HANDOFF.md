@@ -14,7 +14,7 @@ A user downloads a HUD or champion-skin mod, opens its `.fantome` file, makes a 
 
 ### Current implementation
 
-The single-file browser app opens legacy ZIP-based `.fantome` packages and the current League Toolkit `.modpkg` format locally. It reads package metadata, lists/searches package entries, and previews common images when the browser can decode them. It deliberately keeps editing and export disabled. It does not unpack WAD files or decode Zstandard-compressed `.modpkg` chunks in browsers without a Zstandard decoder.
+The single-file browser app opens legacy ZIP-based `.fantome` packages and the current League Toolkit `.modpkg` format locally. It groups entries by type and target WAD, opens version 3 WAD indexes, and identifies WAD entries by their content while showing hashes in place of unresolved paths. It previews BC1, BC3, and BGRA8 `.tex` textures plus common images. `.modpkg` and WAD Zstandard entries need a browser with `DecompressionStream("zstd")`. Editing and export remain disabled.
 
 Continue in small phases:
 
@@ -58,3 +58,4 @@ The differentiator is a much simpler, focused HUD editing flow. Existing tools a
 ## Notes for the project owner
 
 I can't send this to Claude directly from this chat. After attaching the project folder or repo, paste the prompt above and include sample `.fantome` files for a HUD mod and a champion-skin mod you have permission to modify. Make copies first; file-format behavior can vary by mod.
+
