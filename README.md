@@ -4,9 +4,9 @@ A beginner-friendly editor concept for customizing League of Legends `.fantome` 
 
 ## Current state
 
-`index.html` now opens ZIP-based `.fantome` packages locally, reads `META/info.json` when present, lists files, searches paths, and previews supported PNG, JPEG, WebP, GIF, and BMP images. The original package is never uploaded or changed.
+`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It reads package metadata, lists and searches entries, and previews supported PNG, JPEG, WebP, GIF, and BMP images when their contents can be decoded by the browser. The original package is never uploaded or changed.
 
-This is the first read-only file-inspection step. It does not unpack `.wad.client` archives or edit HUD/skin assets yet. The HUD controls still affect only the sample preview, and export is intentionally disabled until real file edits can be preserved safely.
+This is the first read-only file-inspection step. It does not unpack `.wad.client` archives or edit HUD/skin assets yet. `.modpkg` entries compressed with Zstandard can be listed, but browsers such as Chrome do not currently expose a built-in Zstandard decoder for previews. The HUD controls still affect only the sample preview, and export is intentionally disabled until real file edits can be preserved safely.
 
 ## Intended workflow
 
@@ -24,6 +24,8 @@ Open `index.html` in a modern browser. It has no build step or external dependen
 ## Current limitations
 
 - ZIP64, encrypted, multi-disk, and packages over 512 MB are not supported.
+- `.modpkg` format versions other than version 1 are not supported.
+- Zstandard-compressed `.modpkg` entries are listed but may not preview in the browser.
 - Individual previews are limited to 96 MB and ZIP store/deflate compression.
 - WAD archives are listed but not unpacked.
 - No package files are edited or exported yet.
