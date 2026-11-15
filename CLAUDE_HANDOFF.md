@@ -12,16 +12,17 @@ Build the real file-processing side of **Sable**, a beginner-friendly Windows to
 
 A user downloads a HUD or champion-skin mod, opens its `.fantome` file, makes a supported visual adjustment, previews it, then exports a **new** mod file. Never overwrite the downloaded original. Be honest in the UI when a particular asset cannot be edited.
 
-### First deliverable
+### Current implementation
 
-Start by inspecting the format and the sample files supplied by the user. Do not assume every `.fantome` contains the same file layout. A `.fantome` is a ZIP-based package with `META/info.json` and mod content such as `WAD/` or `RAW/`; the WAD content may itself be packed or represented as loose files. HUD and champion-skin assets may include textures, materials, models, effects, and layout/property data; identify the actual asset types before offering edits.
+The single-file browser app already opens ordinary ZIP-based `.fantome` packages locally, displays `META/info.json` metadata, lists and searches outer package entries, and previews common image files. It deliberately keeps editing and export disabled. It does not unpack WAD files, which are often the actual containers for HUD and champion-skin assets.
 
-Implement this in small phases:
+Continue in small phases:
 
-1. **Read-only inspection:** open a `.fantome`, show its metadata, list package/WAD contents, classify likely HUD and skin assets, and preview supported textures or models. Handle malformed or unsupported files with clear errors.
-2. **Safe basic edits:** start with edits that can be reliably round-tripped for the actual HUD and skin sample mods. Keep original data for untouched entries byte-for-byte where practical. Do not silently drop entries or layers.
-3. **Preview controls:** connect the existing inspector controls only to real supported properties. Do not present mock controls as successful file edits.
-4. **Export:** create a new `.fantome` beside the chosen destination, preserve metadata and unknown entries, and validate that the output can be reopened. Keep source and output separate.
+1. **Inspect real samples:** use user-provided HUD and skin `.fantome` files. Do not assume every package has the same layout. A `.fantome` commonly has `META/info.json` and `WAD/` or `RAW/` content; WAD may itself be packed or represented as loose files. Identify real asset types before offering edits.
+2. **Read-only WAD support:** use a maintained LeagueToolkit reader to inspect nested WAD entries and preview supported textures. Handle malformed or unsupported files with clear errors.
+3. **Safe basic edits:** start with edits that can be reliably round-tripped for the supplied HUD and skin samples. Preserve untouched entries byte-for-byte where practical. Do not silently drop entries or layers.
+4. **Preview controls:** connect inspector controls only to real supported properties. Do not present mock controls as successful file edits.
+5. **Export:** create a new `.fantome`, preserve metadata and unknown entries, and confirm the output can be reopened. Keep source and output separate.
 
 Before choosing language or libraries, inspect what is installed and research maintained LeagueToolkit format libraries. Prefer a well-maintained parser/writer over inventing the WAD format. The official LeagueToolkit `league-mod` / `ltk_fantome` source is a strong reference for package structure and read/write behavior. Keep the app local-first; do not upload mod files or request Riot credentials.
 
