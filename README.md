@@ -4,7 +4,7 @@ A beginner-friendly editor concept for customizing League of Legends `.fantome` 
 
 ## Current state
 
-`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It reads package metadata, lists and searches entries, and previews supported PNG, JPEG, WebP, GIF, and BMP images when their contents can be decoded by the browser. The original package is never uploaded or changed.
+`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It reads package metadata, groups and searches entries by asset type, and previews supported PNG, JPEG, WebP, GIF, and BMP images when their contents can be decoded by the browser. The original package is never uploaded or changed.
 
 This is the first read-only file-inspection step. It does not unpack `.wad.client` archives or edit HUD/skin assets yet. `.modpkg` entries compressed with Zstandard can be listed, but browsers such as Chrome do not currently expose a built-in Zstandard decoder for previews. The HUD controls still affect only the sample preview, and export is intentionally disabled until real file edits can be preserved safely.
 
@@ -35,3 +35,4 @@ See [`CLAUDE_HANDOFF.md`](./CLAUDE_HANDOFF.md) for the next development stages a
 ## Notes
 
 This is an unofficial community project and is not affiliated with or endorsed by Riot Games.
+
