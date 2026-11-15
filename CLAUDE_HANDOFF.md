@@ -14,7 +14,7 @@ A user downloads a HUD or champion-skin mod, opens its `.fantome` file, makes a 
 
 ### Current implementation
 
-The single-file browser app opens legacy ZIP-based `.fantome` packages and the current League Toolkit `.modpkg` format locally. It groups entries by type and target WAD, opens version 3 WAD indexes, and identifies WAD entries by their content while showing hashes in place of unresolved paths. It previews BC1, BC3, and BGRA8 `.tex` textures plus common images. `.modpkg` and WAD Zstandard entries need a browser with `DecompressionStream("zstd")`. Editing and export remain disabled.
+The single-file browser app opens legacy ZIP-based `.fantome` packages and the current League Toolkit `.modpkg` format locally. It groups entries by type and target WAD, opens version 3 WAD indexes, and identifies WAD entries by their content while showing hashes in place of unresolved paths. It previews BC1, BC3, and BGRA8 `.tex` textures plus common images. Zstandard decoding tries the browser API, then loads the pinned `fzstd` 0.1.1 fallback from jsDelivr on demand; mod files are never sent to the CDN. Editing and export remain disabled.
 
 Continue in small phases:
 
