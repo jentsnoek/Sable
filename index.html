@@ -83,6 +83,7 @@
     .asset-size { flex: 0 0 auto; color: var(--soft); font-size: 8px; font-variant-numeric: tabular-nums; }
     .asset-search { width: 100%; margin: 3px 0 9px; padding: 8px 9px; border: 1px solid #403a42; border-radius: 7px; outline: none; color: var(--text); background: #211f23; font-size: 10px; }
     .asset-search:focus { border-color: #765261; }
+    .wad-back { width: 100%; margin: 0 0 8px; justify-content: flex-start; }
     .package-meta { display: grid; gap: 7px; margin-bottom: 10px; padding: 10px; border: 1px solid #39333b; border-radius: 8px; background: #201d21; }
     .meta-pair { min-width: 0; }
     .meta-label { color: var(--soft); font-size: 8px; text-transform: uppercase; letter-spacing: .1em; }
@@ -229,6 +230,7 @@
             <div class="section-head"><span class="eyebrow" id="assetCount">Package files</span><span class="tiny-action">Local only</span></div>
             <div class="package-meta" id="packageMeta"><div class="asset-empty-list">Open a `.fantome` file to view its metadata and packaged assets.</div></div>
             <input class="asset-search" id="assetSearch" type="search" placeholder="Search files…" aria-label="Search package files">
+            <button class="btn quiet wad-back hidden" id="wadBack" type="button">Back to package files</button>
             <div class="asset-list" id="packageFiles"><div class="asset-empty-list">Package files will appear here.</div></div>
           </div>
         </div>
@@ -278,6 +280,7 @@
     let toastTimer;
     let zoom = 100;
     let loadedPackage = null;
+    let currentWadView = null;
     let currentAssetUrl = null;
     let previewRequest = 0;
     const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -301,7 +304,10 @@
       const dot = name.lastIndexOf(".");
       return dot < 0 ? "" : name.slice(dot).toLowerCase();
     };
-    const entryKind = (path) => {
+    const entryKind = (path, assetType = "") => {
+      if (assetType === "Textures") return "TEX";
+      if (assetType === "Models & animation") return "MODEL";
+      if (assetType === "Audio") return "AUDIO";
       if (/\.wad(?:\.client)?$/i.test(path)) return "WAD";
       const extension = fileExtension(path).replace(".", "");
       return (extension || "FILE").slice(0, 4).toUpperCase();
@@ -375,6 +381,156 @@
       const output = new Uint8Array(await new Response(stream).arrayBuffer());
       if (output.byteLength !== entry.size) throw new Error("The decompressed entry size did not match its ZIP record.");
       return output;
+    };
+    const decompressBytes = async (compressed, format, expectedSize) => {
+      if (typeof DecompressionStream === "undefined") throw new Error("This browser does not support the compression decoder Sable needs.");
+      let stream;
+      try { stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream(format)); }
+      catch { throw new Error(`This browser cannot decode ${format.toUpperCase()} data.`); }
+      const output = new Uint8Array(await new Response(stream).arrayBuffer());
+      if (expectedSize !== undefined && output.byteLength !== expectedSize) throw new Error("The decompressed asset size did not match its archive record.");
+      return output;
+    };
+    const parseWadIndex = (input, wadPath) => {
+      const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+      if (bytes.length < 272 || bytes[0] !== 0x52 || bytes[1] !== 0x57) throw new Error("This entry is not a readable League WAD archive.");
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const major = bytes[2]; const minor = bytes[3];
+      if (major !== 3) throw new Error(`WAD version ${major}.${minor} is not supported yet.`);
+      const countOffset = 4 + 256 + 8;
+      const count = view.getUint32(countOffset, true);
+      const entrySize = minor >= 4 ? 32 : 29;
+      const tableOffset = countOffset + 4;
+      if (count > 100000 || tableOffset + count * entrySize > bytes.length) throw new Error("The WAD table is incomplete or contains an invalid entry count.");
+      const entries = []; const compressionCounts = Object.create(null);
+      for (let i = 0; i < count; i++) {
+        const cursor = tableOffset + i * entrySize;
+        const hash = view.getBigUint64(cursor, true).toString(16).padStart(16, "0");
+        const dataOffset = view.getUint32(cursor + 8, true);
+        const compressedSize = view.getUint32(cursor + 12, true);
+        const size = view.getUint32(cursor + 16, true);
+        const packed = minor >= 4 ? view.getUint32(cursor + 20, true) : view.getUint8(cursor + 20);
+        const compression = minor >= 4 ? packed & 0x0f : packed;
+        if (compression !== 2 && (dataOffset > bytes.length || compressedSize > bytes.length - dataOffset)) throw new Error(`WAD entry ${hash} points outside the archive.`);
+        const compressionName = ({ 0: "Uncompressed", 1: "GZip", 2: "External", 3: "Zstandard", 4: "Chunked Zstandard" })[compression] || `Compression ${compression}`;
+        compressionCounts[compressionName] = (compressionCounts[compressionName] || 0) + 1;
+        entries.push({
+          path: `0x${hash}`, displayPath: `${wadPath} / 0x${hash}`, hash, size, compressedSize, dataOffset,
+          compression, compressionName, format: "wad-chunk", assetType: "WAD entries"
+        });
+      }
+      return { entries, version: `${major}.${minor}`, compressionCounts };
+    };
+    const readWadChunk = async (wadBytes, entry) => {
+      if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This WAD entry is larger than 96 MB, so Sable skipped opening it.");
+      const compressed = wadBytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
+      if (entry.compression === 0) return compressed.slice();
+      if (entry.compression === 1) return decompressBytes(compressed, "gzip", entry.size);
+      if (entry.compression === 3) return decompressBytes(compressed, "zstd", entry.size);
+      throw new Error(`${entry.compressionName} entries can be listed, but Sable cannot open them yet.`);
+    };
+    const identifyWadAsset = (bytes) => {
+      const magic = new TextDecoder().decode(bytes.subarray(0, 4));
+      if (magic === "TEX\0" || magic === "DDS ") return "Textures";
+      if (["SKN\0", "SKL\0", "ANM\0", "SCB\0", "SCO\0"].includes(magic)) return "Models & animation";
+      if (magic === "PROP" || magic === "PTCH") return "Game data";
+      if (magic === "BKHD" || magic === "RIFF" || magic === "WPK\0") return "Audio";
+      if (magic.startsWith("RW")) return "WAD archives";
+      if (bytes[0] === 0x89 && magic.slice(1, 4) === "PNG") return "Images";
+      return "Other WAD entries";
+    };
+    const scanWadEntries = async (bytes, wad, request) => {
+      const canReadZstd = (() => { try { new DecompressionStream("zstd"); return true; } catch { return false; } })();
+      if (!canReadZstd && wad.entries.some((entry) => entry.compression === 3)) {
+        wad.entries.forEach((entry) => { entry.assetType = "Unclassified WAD entries"; });
+        return false;
+      }
+      for (let i = 0; i < wad.entries.length; i++) {
+        if (request !== previewRequest) return false;
+        const entry = wad.entries[i];
+        try { entry.assetType = identifyWadAsset(await readWadChunk(bytes, entry)); }
+        catch { entry.assetType = "Unclassified WAD entries"; }
+        if ((i + 1) % 40 === 0) {
+          setStatus(`Reading WAD entries ${i + 1}/${wad.entries.length}`);
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+      }
+      return true;
+    };
+    const decodeTex = (input) => {
+      const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+      if (bytes.length < 12) throw new Error("This TEX file is shorter than its header.");
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (view.getUint32(0, true) !== 0x00584554) throw new Error("This file does not contain a League TEX texture.");
+      const width = view.getUint16(4, true); const height = view.getUint16(6, true);
+      const depth = bytes[8] || 1; const format = bytes[9]; const flags = bytes[11];
+      if (!width || !height || width * height > 20000000) throw new Error("This texture has dimensions Sable cannot safely preview.");
+      const mipCount = (flags & 1) ? Math.floor(Math.log2(Math.max(width, height, depth))) + 1 : 1;
+      const bytesPerMip = (w, h) => format === 20 ? w * h * 4 : Math.ceil(w / 4) * Math.ceil(h / 4) * (format === 12 ? 16 : 8);
+      let dataOffset = 12;
+      if (mipCount > 1) for (let level = mipCount - 1; level > 0; level--) dataOffset += bytesPerMip(Math.max(1, width >> level), Math.max(1, height >> level));
+      const pixels = new Uint8ClampedArray(width * height * 4);
+      if (format === 20) {
+        const required = width * height * 4;
+        if (dataOffset + required > bytes.length) throw new Error("The BGRA8 texture pixels are incomplete.");
+        for (let i = 0; i < width * height; i++) {
+          const source = dataOffset + i * 4; const target = i * 4;
+          pixels[target] = bytes[source + 2]; pixels[target + 1] = bytes[source + 1]; pixels[target + 2] = bytes[source]; pixels[target + 3] = bytes[source + 3];
+        }
+        return { width, height, format, mipCount, pixels };
+      }
+      if (![10, 11, 12].includes(format)) throw new Error(`This TEX file is open, but Sable cannot preview format ${format} yet.`);
+      const blockBytes = format === 12 ? 16 : 8;
+      const blocksWide = Math.ceil(width / 4); const blocksHigh = Math.ceil(height / 4);
+      if (dataOffset + blocksWide * blocksHigh * blockBytes > bytes.length) throw new Error("The compressed texture pixels are incomplete.");
+      const color565 = (value) => {
+        const r = (value >> 11) & 31; const g = (value >> 5) & 63; const b = value & 31;
+        return [(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2), 255];
+      };
+      for (let by = 0; by < blocksHigh; by++) for (let bx = 0; bx < blocksWide; bx++) {
+        const block = dataOffset + (by * blocksWide + bx) * blockBytes;
+        const colorBlock = block + (format === 12 ? 8 : 0);
+        const c0 = view.getUint16(colorBlock, true); const c1 = view.getUint16(colorBlock + 2, true);
+        const palette = [color565(c0), color565(c1)];
+        const forceFourColors = format === 12;
+        if (c0 > c1 || forceFourColors) {
+          palette.push([0, 1, 2, 3].map((_, c) => c < 3 ? Math.round((2 * palette[0][c] + palette[1][c]) / 3) : 255));
+          palette.push([0, 1, 2, 3].map((_, c) => c < 3 ? Math.round((palette[0][c] + 2 * palette[1][c]) / 3) : 255));
+        } else {
+          palette.push([0, 1, 2, 3].map((_, c) => c < 3 ? Math.round((palette[0][c] + palette[1][c]) / 2) : 255));
+          palette.push([0, 0, 0, 0]);
+        }
+        const colorIndices = view.getUint32(colorBlock + 4, true);
+        let alphaPalette = null; let alphaBytes = null;
+        if (format === 12) {
+          const a0 = bytes[block]; const a1 = bytes[block + 1]; alphaPalette = [a0, a1];
+          if (a0 > a1) for (let i = 1; i <= 6; i++) alphaPalette.push(Math.round(((7 - i) * a0 + i * a1) / 7));
+          else { for (let i = 1; i <= 4; i++) alphaPalette.push(Math.round(((5 - i) * a0 + i * a1) / 5)); alphaPalette.push(0, 255); }
+          alphaBytes = bytes.subarray(block + 2, block + 8);
+        }
+        for (let py = 0; py < 4; py++) for (let px = 0; px < 4; px++) {
+          const x = bx * 4 + px; const y = by * 4 + py; if (x >= width || y >= height) continue;
+          const pixel = py * 4 + px; const color = palette[(colorIndices >>> (pixel * 2)) & 3];
+          const target = (y * width + x) * 4;
+          pixels[target] = color[0]; pixels[target + 1] = color[1]; pixels[target + 2] = color[2];
+          if (format === 12) {
+            const bit = pixel * 3; const byte = bit >> 3; const shift = bit & 7;
+            const packed = alphaBytes[byte] | ((alphaBytes[byte + 1] || 0) << 8);
+            pixels[target + 3] = alphaPalette[(packed >> shift) & 7];
+          } else pixels[target + 3] = color[3];
+        }
+      }
+      return { width, height, format, mipCount, pixels };
+    };
+    const texToPng = async (input) => {
+      const texture = decodeTex(input);
+      const canvas = document.createElement("canvas"); canvas.width = texture.width; canvas.height = texture.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Sable could not create the texture preview canvas.");
+      const imageData = context.createImageData(texture.width, texture.height); imageData.data.set(texture.pixels); context.putImageData(imageData, 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Sable could not turn this TEX texture into a preview image.");
+      return { blob, width: texture.width, height: texture.height, format: texture.format, mipCount: texture.mipCount };
     };
     const decodeMessagePack = (bytes) => {
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -582,23 +738,24 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["Textures", "Images", "WAD archives", "WAD contents", "Models & animation", "Audio", "Metadata", "Other"];
+    const assetGroupOrder = ["Textures", "Images", "WAD archives", "WAD contents", "Models & animation", "Audio", "Game data", "Metadata", "Other WAD entries", "Unclassified WAD entries", "Other"];
     const assetGroupFor = (entry) => {
       const path = entry.path.toLowerCase();
       const extension = fileExtension(path);
-      if (entry.format === "wad-chunk") return "WAD contents";
-      if (/\.wad(?:\.client)?$/i.test(path)) return "WAD archives";
-      if ([".tex", ".dds"].includes(extension)) return "Textures";
-      if (IMAGE_MIME[extension]) return "Images";
-      if ([".skn", ".skl", ".anm", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension)) return "Models & animation";
-      if ([".bnk", ".wem", ".wpk"].includes(extension)) return "Audio";
-      if ([".json", ".msgpack", ".bin"].includes(extension) || path.startsWith("_meta/") || path.startsWith("meta/")) return "Metadata";
-      return "Other";
+      if (entry.format === "wad-chunk") return entry.assetType || "WAD contents";
+      let group = "Other";
+      if (/\.wad(?:\.client)?$/i.test(path)) group = "WAD archives";
+      else if ([".tex", ".dds"].includes(extension)) group = "Textures";
+      else if (IMAGE_MIME[extension]) group = "Images";
+      else if ([".skn", ".skl", ".anm", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension)) group = "Models & animation";
+      else if ([".bnk", ".wem", ".wpk"].includes(extension)) group = "Audio";
+      else if ([".json", ".msgpack", ".bin"].includes(extension) || path.startsWith("_meta/") || path.startsWith("meta/")) group = "Metadata";
+      return entry.wad && group !== "Metadata" ? `${group} · ${entry.wad}` : group;
     };
-    const renderPackageFiles = (entries) => {
+    const renderPackageFiles = (entries, countLabel = "package files") => {
       const list = document.getElementById("packageFiles");
       list.replaceChildren();
-      document.getElementById("assetCount").textContent = `${entries.length} package files`;
+      document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
       }
@@ -608,11 +765,15 @@
         if (!groups.has(group)) groups.set(group, []);
         groups.get(group).push(entry);
       }
-      for (const groupName of assetGroupOrder) {
+      const groupNames = [...groups.keys()].sort((a, b) => {
+        const rank = (name) => { const index = assetGroupOrder.findIndex((base) => name === base || name.startsWith(`${base} · `)); return index < 0 ? assetGroupOrder.length : index; };
+        return rank(a) - rank(b) || a.localeCompare(b);
+      });
+      for (const groupName of groupNames) {
         const groupEntries = groups.get(groupName);
         if (!groupEntries?.length) continue;
-        groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path));
-        const group = document.createElement("details"); group.className = "asset-group"; group.open = groupEntries.length <= 20;
+        groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        const group = document.createElement("details"); group.className = "asset-group"; group.open = true;
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -621,7 +782,7 @@
         for (const entry of groupEntries) {
           const displayPath = entry.displayPath || entry.path;
           const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = displayPath.toLowerCase();
-          const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path);
+          const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path, entry.assetType);
           const details = document.createElement("span"); details.className = "asset-details";
           const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
           const path = document.createElement("span"); path.className = "asset-path"; path.textContent = displayPath;
@@ -634,41 +795,99 @@
         list.append(group);
       }
     };
+    const readPackageEntry = (entry) => entry.format === "modpkg"
+      ? readModpkgChunk(loadedPackage.buffer, entry)
+      : readZipEntry(loadedPackage.buffer, entry);
+    const showTexturePreview = async (bytes, entry, request) => {
+      const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
+      message.textContent = "Decoding texture preview."; message.classList.remove("hidden");
+      const preview = await texToPng(bytes);
+      if (request !== previewRequest) return;
+      currentAssetUrl = URL.createObjectURL(preview.blob);
+      image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
+      document.getElementById("inspectTag").textContent = `TEX ${preview.width}×${preview.height}`;
+      document.getElementById("selectedPath").textContent = `${preview.width} × ${preview.height} · format ${preview.format} · ${preview.mipCount} mip${preview.mipCount === 1 ? "" : "s"} · ${entry.displayPath || entry.path}`;
+      document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${preview.width}×${preview.height}`;
+    };
     const selectPackageEntry = async (entry, row) => {
       const request = ++previewRequest;
       document.querySelectorAll(".asset-row").forEach((node) => node.classList.toggle("selected", node === row));
       document.getElementById("gamePreview").classList.add("asset-mode");
       document.getElementById("visualControls").classList.add("hidden");
       document.getElementById("assetReadOnly").classList.remove("hidden");
-      document.getElementById("inspectEyebrow").textContent = "Package entry";
+      document.getElementById("inspectEyebrow").textContent = entry.format === "wad-chunk" ? "WAD asset" : "Package entry";
       const displayPath = entry.displayPath || entry.path;
       document.getElementById("selectedName").textContent = entry.path.split("/").pop() || entry.path;
-      document.getElementById("inspectTag").textContent = entryKind(entry.path);
+      document.getElementById("inspectTag").textContent = entry.format === "wad-chunk" ? entryKind(entry.path, entry.assetType) : entryKind(entry.path);
       document.getElementById("selectedPath").textContent = `${prettyBytes(entry.size)} · ${displayPath}`;
       document.getElementById("assetPreviewTitle").textContent = displayPath;
-      const image = document.getElementById("assetImage");
-      const message = document.getElementById("assetMessage");
+      const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
       image.classList.add("hidden"); image.removeAttribute("src");
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
-      const mime = IMAGE_MIME[fileExtension(entry.path)];
-      if (!mime) {
-        message.classList.remove("hidden");
-        message.textContent = /\.wad(?:\.client)?$/i.test(entry.path)
-          ? "This is a packed WAD archive. Sable can list it, but unpacking and editing WAD contents are the next development stage."
-          : "Sable can list this file, but its format does not have a preview yet.";
-        return;
-      }
-      message.textContent = "Loading image preview…"; message.classList.remove("hidden");
+
       try {
-        const data = entry.format === "modpkg"
-          ? await readModpkgChunk(loadedPackage.buffer, entry)
-          : await readZipEntry(loadedPackage.buffer, entry);
+        if (entry.format === "wad-chunk") {
+          if (!currentWadView) throw new Error("Go back to the package and open the WAD again.");
+          message.textContent = `Opening ${entry.assetType.toLowerCase()} entry.`; message.classList.remove("hidden");
+          const data = await readWadChunk(currentWadView.bytes, entry);
+          if (request !== previewRequest) return;
+          if (data.length >= 4 && data[0] === 0x54 && data[1] === 0x45 && data[2] === 0x58 && data[3] === 0) {
+            await showTexturePreview(data, entry, request);
+            setStatus("TEX preview ready");
+          } else {
+            const magic = [...data.subarray(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ").toUpperCase();
+            message.textContent = `${entry.assetType} · ${entry.compressionName} · ${prettyBytes(entry.size)} · header ${magic}. This entry is opened and identified, but it does not have an image preview.`;
+            message.classList.remove("hidden");
+          }
+          return;
+        }
+
+        if (/\.wad(?:\.client)?$/i.test(entry.path)) {
+          message.textContent = "Opening WAD and grouping its contents."; message.classList.remove("hidden");
+          setStatus("Reading WAD archive");
+          const bytes = await readPackageEntry(entry);
+          if (request !== previewRequest) return;
+          const wad = parseWadIndex(bytes, displayPath);
+          currentWadView = { sourceEntry: entry, bytes, entries: wad.entries, version: wad.version };
+          const classified = await scanWadEntries(bytes, wad, request);
+          if (request !== previewRequest) return;
+          document.getElementById("wadBack").classList.remove("hidden");
+          document.getElementById("assetSearch").value = "";
+          renderPackageFiles(wad.entries, "WAD entries");
+          document.getElementById("selectedName").textContent = `${wad.entries.length} WAD entries`;
+          document.getElementById("inspectTag").textContent = `WAD ${wad.version}`;
+          document.getElementById("selectedPath").textContent = `${displayPath} · ${wad.entries.length} hashed entries`;
+          document.getElementById("assetPreviewTitle").textContent = `${displayPath} · WAD ${wad.version}`;
+          const groups = Object.create(null);
+          wad.entries.forEach((item) => { groups[item.assetType] = (groups[item.assetType] || 0) + 1; });
+          const summary = Object.entries(groups).map(([name, count]) => `${name}: ${count}`).join(" · ");
+          message.textContent = classified
+            ? `${wad.entries.length} internal entries grouped by detected file type (${summary}). WAD paths are stored as hashes, so Sable shows each asset's hash.`
+            : `${wad.entries.length} internal entries indexed. This browser cannot decode Zstandard, so Sable cannot classify or preview compressed entries here.`;
+          message.classList.remove("hidden");
+          setStatus(`WAD ${wad.version} · ${wad.entries.length} entries`);
+          return;
+        }
+
+        const data = await readPackageEntry(entry);
         if (request !== previewRequest) return;
+        if (fileExtension(entry.path) === ".tex") {
+          await showTexturePreview(data, entry, request);
+          setStatus("TEX preview ready");
+          return;
+        }
+        const mime = IMAGE_MIME[fileExtension(entry.path)];
+        if (!mime) {
+          message.textContent = "Sable opened this package entry. It can preview images and supported TEX textures; this file type currently has no visual preview.";
+          message.classList.remove("hidden");
+          return;
+        }
         currentAssetUrl = URL.createObjectURL(new Blob([data], { type: mime }));
         image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
       } catch (error) {
         if (request !== previewRequest) return;
-        message.textContent = error.message || "Sable could not preview this image.";
+        message.textContent = error.message || "Sable could not open this package entry.";
+        message.classList.remove("hidden");
       }
     };
     const switchSidebarView = (view) => {
@@ -684,6 +903,26 @@
         document.getElementById("inspectTag").textContent = "Preview";
         selectElement(selected);
       }
+    };
+    const returnToPackageFiles = () => {
+      if (!loadedPackage) return;
+      previewRequest++;
+      currentWadView = null;
+      if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
+      document.getElementById("wadBack").classList.add("hidden");
+      document.getElementById("assetSearch").value = "";
+      renderPackageFiles(loadedPackage.entries);
+      const name = loadedPackage.metadata.display_name || loadedPackage.metadata.name || loadedPackage.metadata.Name || loadedPackage.file.name;
+      document.getElementById("selectedName").textContent = name;
+      document.getElementById("inspectEyebrow").textContent = "Package";
+      document.getElementById("inspectTag").textContent = loadedPackage.format.toUpperCase();
+      document.getElementById("selectedPath").textContent = `${loadedPackage.entries.length} package entries`;
+      document.getElementById("assetPreviewTitle").textContent = name;
+      document.getElementById("assetImage").classList.add("hidden");
+      document.getElementById("assetImage").removeAttribute("src");
+      document.getElementById("assetMessage").textContent = "Choose an asset group, then open a TEX texture or WAD archive to inspect its contents.";
+      document.getElementById("assetMessage").classList.remove("hidden");
+      setStatus(`${loadedPackage.format.toUpperCase()} loaded`);
     };
     const openModFile = async (file) => {
       if (!file) return;
@@ -706,6 +945,8 @@
         }
         if (currentAssetUrl) URL.revokeObjectURL(currentAssetUrl);
         currentAssetUrl = null;
+        currentWadView = null;
+        document.getElementById("wadBack").classList.add("hidden");
         loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata, format, layers: archive.layers || [] };
         const displayName = metadata.display_name || metadata.name || metadata.Name || file.name;
         document.getElementById("modName").textContent = displayName;
@@ -729,8 +970,8 @@
         document.getElementById("assetImage").classList.add("hidden");
         document.getElementById("assetMessage").classList.remove("hidden");
         document.getElementById("assetMessage").textContent = format === "modpkg"
-          ? "Choose an entry to inspect it. Files are shown with their layer and target WAD. Zstandard-compressed chunks may not preview in this browser yet."
-          : "Choose an image from the Assets tab to preview it. Packed WAD archives are listed but not unpacked yet.";
+          ? "Choose an asset group. TEX entries open as image previews; entries are organized by type and target WAD."
+          : "Choose an asset group. Open a WAD archive to browse its internal entries, or select a supported image to preview it.";
         setStatus(`${format.toUpperCase()} loaded`);
         toast(`Opened ${file.name} · ${archive.entries.length} entries`);
       } catch (error) {
@@ -834,6 +1075,7 @@
       else if (tab.dataset.toast) toast(tab.dataset.toast);
     }));
     document.getElementById("openFile").addEventListener("click", () => document.getElementById("filePicker").click());
+    document.getElementById("wadBack").addEventListener("click", returnToPackageFiles);
     document.getElementById("filePicker").addEventListener("change", (event) => {
       const file = event.target.files[0];
       event.target.value = "";
