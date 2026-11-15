@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#151316">
-  <title>Sable — Fantome mod editor</title>
+  <title>Sable — League mod editor</title>
   <style>
     :root {
       color-scheme: dark;
@@ -190,20 +190,20 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SABLE</div><div class="brand-sub">Fantome mod editor</div></div></div>
+      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SABLE</div><div class="brand-sub">League mod editor</div></div></div>
       <div class="crumb">Projects <span>›</span> <strong id="projectName">Sable</strong></div>
       <div class="top-spacer"></div>
       <div class="status"><span class="dot"></span> <span id="statusText">Preview ready</span></div>
-      <button class="btn quiet" id="openFile">＋ Open .fantome</button>
+      <button class="btn quiet" id="openFile">＋ Open mod file</button>
       <button class="btn primary" id="exportBtn" disabled title="Editing and export are not implemented yet.">Export edited copy <span>↗</span></button>
-      <input type="file" id="filePicker" accept=".fantome,.zip" hidden>
+      <input type="file" id="filePicker" accept=".fantome,.modpkg,.zip" hidden>
     </header>
 
     <main class="layout">
       <aside class="sidebar">
         <div class="side-top">
           <div class="eyebrow">Current mod</div>
-          <div class="file-card"><div class="file-icon">FNT</div><div class="file-meta"><div class="file-name" id="modName">No mod opened</div><div class="file-desc" id="fileDesc">Choose a .fantome file to inspect</div></div><span class="file-check" id="fileCheck">·</span></div>
+          <div class="file-card"><div class="file-icon">MOD</div><div class="file-meta"><div class="file-name" id="modName">No mod opened</div><div class="file-desc" id="fileDesc">Choose a .fantome or .modpkg file</div></div><span class="file-check" id="fileCheck">·</span></div>
         </div>
         <div class="side-tabs"><button class="side-tab active" data-view="elements">Preview</button><button class="side-tab" data-view="assets">Assets</button><button class="side-tab" data-toast="Project settings are planned for a later stage.">Settings</button></div>
         <div class="side-content">
@@ -224,7 +224,7 @@
             <div class="asset-list" id="packageFiles"><div class="asset-empty-list">Package files will appear here.</div></div>
           </div>
         </div>
-        <div class="side-bottom">The original file stays untouched. This build inspects packages and previews supported images; editing comes next.</div>
+        <div class="side-bottom">Sable reads .fantome and .modpkg files locally. The original stays untouched; editing comes next.</div>
       </aside>
 
       <section class="workspace">
@@ -368,14 +368,201 @@
       if (output.byteLength !== entry.size) throw new Error("The decompressed entry size did not match its ZIP record.");
       return output;
     };
+    const decodeMessagePack = (bytes) => {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      let cursor = 0;
+      const take = (length) => {
+        if (!Number.isSafeInteger(length) || length < 0 || cursor + length > bytes.length) throw new Error("The modpkg metadata is incomplete.");
+        const start = cursor; cursor += length; return start;
+      };
+      const u8 = () => bytes[take(1)];
+      const i8 = () => view.getInt8(take(1));
+      const u16 = () => view.getUint16(take(2), false);
+      const i16 = () => view.getInt16(take(2), false);
+      const u32 = () => view.getUint32(take(4), false);
+      const i32 = () => view.getInt32(take(4), false);
+      const u64 = () => { const value = view.getBigUint64(take(8), false); return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString(); };
+      const i64 = () => { const value = view.getBigInt64(take(8), false); return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString(); };
+      const string = (length) => new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(take(length), cursor));
+      const binary = (length) => bytes.slice(take(length), cursor);
+      const collectionLength = (length) => {
+        if (length > 100000) throw new Error("The modpkg metadata contains an unusually large collection.");
+        return length;
+      };
+      const parse = (depth = 0) => {
+        if (depth > 64) throw new Error("The modpkg metadata is nested too deeply.");
+        const marker = u8();
+        if (marker <= 0x7f) return marker;
+        if (marker >= 0xe0) return marker - 0x100;
+        if ((marker & 0xf0) === 0x80) {
+          const count = collectionLength(marker & 0x0f); const object = Object.create(null);
+          for (let i = 0; i < count; i++) object[String(parse(depth + 1))] = parse(depth + 1);
+          return object;
+        }
+        if ((marker & 0xf0) === 0x90) {
+          const count = collectionLength(marker & 0x0f); return Array.from({ length: count }, () => parse(depth + 1));
+        }
+        if ((marker & 0xe0) === 0xa0) return string(marker & 0x1f);
+        switch (marker) {
+          case 0xc0: return null;
+          case 0xc2: return false;
+          case 0xc3: return true;
+          case 0xc4: return binary(u8());
+          case 0xc5: return binary(u16());
+          case 0xc6: return binary(u32());
+          case 0xca: return view.getFloat32(take(4), false);
+          case 0xcb: return view.getFloat64(take(8), false);
+          case 0xcc: return u8();
+          case 0xcd: return u16();
+          case 0xce: return u32();
+          case 0xcf: return u64();
+          case 0xd0: return i8();
+          case 0xd1: return i16();
+          case 0xd2: return i32();
+          case 0xd3: return i64();
+          case 0xd4: case 0xd5: case 0xd6: case 0xd7: case 0xd8: {
+            const sizes = { 0xd4: 1, 0xd5: 2, 0xd6: 4, 0xd7: 8, 0xd8: 16 };
+            const type = i8(); return { extension: type, data: binary(sizes[marker]) };
+          }
+          case 0xc7: case 0xc8: case 0xc9: {
+            const length = marker === 0xc7 ? u8() : marker === 0xc8 ? u16() : u32();
+            const type = i8(); return { extension: type, data: binary(length) };
+          }
+          case 0xd9: return string(u8());
+          case 0xda: return string(u16());
+          case 0xdb: return string(u32());
+          case 0xdc: return Array.from({ length: collectionLength(u16()) }, () => parse(depth + 1));
+          case 0xdd: return Array.from({ length: collectionLength(u32()) }, () => parse(depth + 1));
+          case 0xde: case 0xdf: {
+            const count = collectionLength(marker === 0xde ? u16() : u32()); const object = Object.create(null);
+            for (let i = 0; i < count; i++) object[String(parse(depth + 1))] = parse(depth + 1);
+            return object;
+          }
+          default: throw new Error(`Unsupported MessagePack value 0x${marker.toString(16)}.`);
+        }
+      };
+      const value = parse();
+      if (cursor !== bytes.length) throw new Error("The modpkg metadata has unexpected trailing data.");
+      return value;
+    };
+    const readModpkgIndex = async (file) => {
+      if (file.size > MAX_ARCHIVE_BYTES) throw new Error("This package is over 512 MB; Sable's browser inspector cannot open it yet.");
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const view = new DataView(buffer);
+      const failIfTruncated = (offset, length) => {
+        if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > bytes.length) throw new Error("The modpkg file is truncated or has invalid offsets.");
+      };
+      const u32 = (offset) => { failIfTruncated(offset, 4); return view.getUint32(offset, true); };
+      const u64 = (offset) => {
+        failIfTruncated(offset, 8);
+        const value = view.getBigUint64(offset, true);
+        if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("This modpkg uses an offset too large for the browser inspector.");
+        return Number(value);
+      };
+      if (bytes.length < 20 || new TextDecoder().decode(bytes.subarray(0, 8)) !== "_modpkg_") throw new Error("This file is not a League Toolkit .modpkg package.");
+      const version = u32(8);
+      if (version !== 1) throw new Error(`This modpkg format version (${version}) is not supported yet.`);
+      const signatureSize = u32(12);
+      const chunkCount = u32(16);
+      if (chunkCount > 100000) throw new Error("This package has more than 100,000 chunks; Sable cannot display that many yet.");
+      let cursor = 20;
+      failIfTruncated(cursor, signatureSize); cursor += signatureSize;
+      const readString = (length) => {
+        failIfTruncated(cursor, length);
+        const value = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(cursor, cursor + length));
+        cursor += length; return value;
+      };
+      const readCString = () => {
+        const start = cursor;
+        while (cursor < bytes.length && bytes[cursor] !== 0) cursor++;
+        if (cursor >= bytes.length) throw new Error("A modpkg string table entry is missing its terminator.");
+        const value = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(start, cursor));
+        cursor++; return value;
+      };
+      const readCount = (label) => {
+        const count = u32(cursor); cursor += 4;
+        if (count > 100000) throw new Error(`The modpkg ${label} table is too large.`);
+        return count;
+      };
+      const layers = [];
+      const layerCount = readCount("layer");
+      for (let i = 0; i < layerCount; i++) {
+        const length = u32(cursor); cursor += 4;
+        const name = readString(length);
+        failIfTruncated(cursor, 4); const priority = view.getInt32(cursor, true); cursor += 4;
+        layers.push({ name, priority });
+      }
+      const paths = [];
+      const pathCount = readCount("path");
+      for (let i = 0; i < pathCount; i++) paths.push(readCString());
+      const wads = [];
+      const wadCount = readCount("WAD");
+      for (let i = 0; i < wadCount; i++) wads.push(readCString());
+      cursor += (8 - (cursor % 8)) % 8;
+      failIfTruncated(cursor, chunkCount * 61);
+      const chunks = [];
+      for (let i = 0; i < chunkCount; i++) {
+        const pathHash = u64(cursor); cursor += 8;
+        const dataOffset = u64(cursor); cursor += 8;
+        const compression = bytes[cursor++];
+        const compressedSize = u64(cursor); cursor += 8;
+        const size = u64(cursor); cursor += 8;
+        cursor += 16; // Compressed and uncompressed checksums.
+        const pathIndex = u32(cursor); cursor += 4;
+        const layerIndex = u32(cursor); cursor += 4;
+        const wadIndex = u32(cursor); cursor += 4;
+        if (pathIndex >= paths.length) throw new Error("A modpkg chunk points to a missing path entry.");
+        if (layerIndex !== 0xffffffff && layerIndex >= layers.length) throw new Error("A modpkg chunk points to a missing layer.");
+        if (wadIndex !== 0xffffffff && wadIndex >= wads.length) throw new Error("A modpkg chunk points to a missing WAD.");
+        failIfTruncated(dataOffset, compressedSize);
+        if (compression !== 0 && compression !== 1) throw new Error(`Unsupported modpkg compression type ${compression}.`);
+        const path = paths[pathIndex];
+        const layer = layerIndex === 0xffffffff ? "" : layers[layerIndex].name;
+        const wad = wadIndex === 0xffffffff ? "" : wads[wadIndex];
+        const displayPath = [layer, wad, path].filter(Boolean).join(" / ");
+        chunks.push({ path, displayPath, layer, wad, pathHash, dataOffset, compression, compressedSize, size, format: "modpkg" });
+      }
+      const metadataEntry = chunks.find((entry) => entry.path.toLowerCase() === "_meta_/info.msgpack");
+      let metadata = {};
+      if (metadataEntry) {
+        if (metadataEntry.compression !== 0) throw new Error("The modpkg metadata chunk uses unsupported compression.");
+        metadata = decodeMessagePack(bytes.subarray(metadataEntry.dataOffset, metadataEntry.dataOffset + metadataEntry.compressedSize));
+      }
+      return { buffer, entries: chunks, metadata, layers, format: "modpkg" };
+    };
+    const readModpkgChunk = async (buffer, entry) => {
+      const bytes = new Uint8Array(buffer);
+      if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This entry is larger than 96 MB, so Sable skipped its preview.");
+      const compressed = bytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
+      if (entry.compression === 0) return compressed.slice();
+      if (entry.compression === 1) {
+        if (typeof DecompressionStream === "undefined") throw new Error("This browser cannot decompress Zstandard modpkg chunks.");
+        try {
+          const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("zstd"));
+          const output = new Uint8Array(await new Response(stream).arrayBuffer());
+          if (output.byteLength !== entry.size) throw new Error("The decompressed chunk size did not match its modpkg record.");
+          return output;
+        } catch (error) {
+          if (error.message?.includes("did not match")) throw error;
+          throw new Error("This chunk uses Zstandard compression, which this browser cannot decode yet. Sable can still list the modpkg contents.");
+        }
+      }
+      throw new Error(`Compression type ${entry.compression} is not supported.`);
+    };
     const renderPackageMeta = (metadata, filename) => {
       const panel = document.getElementById("packageMeta");
       panel.replaceChildren();
+      const authors = Array.isArray(metadata?.authors)
+        ? metadata.authors.map((author) => typeof author === "string" ? author : [author?.name, author?.role].filter(Boolean).join(" · ")).filter(Boolean).join(", ")
+        : metadata?.Author || metadata?.author;
       const fields = [
-        ["Name", metadata?.Name || filename],
-        ["Author", metadata?.Author],
-        ["Version", metadata?.Version],
-        ["Description", metadata?.Description]
+        ["Name", metadata?.display_name || metadata?.name || metadata?.Name || filename],
+        ["Author", authors],
+        ["Version", metadata?.version || metadata?.Version],
+        ["Description", metadata?.description || metadata?.Description],
+        ["Champions", Array.isArray(metadata?.champions) ? metadata.champions.join(", ") : ""],
+        ["Tags", Array.isArray(metadata?.tags) ? metadata.tags.join(", ") : ""]
       ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "");
       for (const [label, value] of fields) {
         const pair = document.createElement("div"); pair.className = "meta-pair";
@@ -383,8 +570,8 @@
         const text = document.createElement("div"); text.className = "meta-value"; text.textContent = String(value);
         pair.append(key, text); panel.append(pair);
       }
-      if (!fields.some(([label]) => label === "Author")) {
-        const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata found."; panel.append(note);
+      if (!authors) {
+        const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
     const renderPackageFiles = (entries) => {
@@ -395,11 +582,12 @@
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
       }
       for (const entry of entries) {
-        const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = entry.path.toLowerCase();
+        const displayPath = entry.displayPath || entry.path;
+        const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = displayPath.toLowerCase();
         const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path);
         const details = document.createElement("span"); details.className = "asset-details";
         const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
-        const path = document.createElement("span"); path.className = "asset-path"; path.textContent = entry.path;
+        const path = document.createElement("span"); path.className = "asset-path"; path.textContent = displayPath;
         const size = document.createElement("span"); size.className = "asset-size"; size.textContent = prettyBytes(entry.size);
         details.append(name, path); row.append(kind, details, size);
         row.addEventListener("click", () => selectPackageEntry(entry, row));
@@ -413,10 +601,11 @@
       document.getElementById("visualControls").classList.add("hidden");
       document.getElementById("assetReadOnly").classList.remove("hidden");
       document.getElementById("inspectEyebrow").textContent = "Package entry";
+      const displayPath = entry.displayPath || entry.path;
       document.getElementById("selectedName").textContent = entry.path.split("/").pop() || entry.path;
       document.getElementById("inspectTag").textContent = entryKind(entry.path);
-      document.getElementById("selectedPath").textContent = `${prettyBytes(entry.size)} · ${entry.path}`;
-      document.getElementById("assetPreviewTitle").textContent = entry.path;
+      document.getElementById("selectedPath").textContent = `${prettyBytes(entry.size)} · ${displayPath}`;
+      document.getElementById("assetPreviewTitle").textContent = displayPath;
       const image = document.getElementById("assetImage");
       const message = document.getElementById("assetMessage");
       image.classList.add("hidden"); image.removeAttribute("src");
@@ -431,7 +620,9 @@
       }
       message.textContent = "Loading image preview…"; message.classList.remove("hidden");
       try {
-        const data = await readZipEntry(loadedPackage.buffer, entry);
+        const data = entry.format === "modpkg"
+          ? await readModpkgChunk(loadedPackage.buffer, entry)
+          : await readZipEntry(loadedPackage.buffer, entry);
         if (request !== previewRequest) return;
         currentAssetUrl = URL.createObjectURL(new Blob([data], { type: mime }));
         image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
@@ -454,27 +645,32 @@
         selectElement(selected);
       }
     };
-    const openFantome = async (file) => {
+    const openModFile = async (file) => {
       if (!file) return;
       previewRequest++;
       setStatus("Reading package…");
       document.getElementById("openFile").disabled = true;
       document.getElementById("fileCheck").textContent = "…";
       try {
-        const archive = await readZipIndex(file);
-        const metadataEntry = archive.entries.find((entry) => entry.path.toLowerCase() === "meta/info.json");
-        let metadata = {};
+        const signature = new TextDecoder().decode(await file.slice(0, 8).arrayBuffer());
+        const isModpkg = signature === "_modpkg_" || file.name.toLowerCase().endsWith(".modpkg");
+        const archive = isModpkg ? await readModpkgIndex(file) : await readZipIndex(file);
+        const format = archive.format || "fantome";
+        const metadataEntry = archive.entries.find((entry) => entry.path.toLowerCase() === (format === "modpkg" ? "_meta_/info.msgpack" : "meta/info.json"));
+        let metadata = archive.metadata || {};
         if (metadataEntry) {
-          try { metadata = JSON.parse(new TextDecoder().decode(await readZipEntry(archive.buffer, metadataEntry))); }
-          catch (error) { throw new Error(`Could not read META/info.json: ${error.message}`); }
+          if (format !== "modpkg") {
+            try { metadata = JSON.parse(new TextDecoder().decode(await readZipEntry(archive.buffer, metadataEntry))); }
+            catch (error) { throw new Error(`Could not read META/info.json: ${error.message}`); }
+          }
         }
         if (currentAssetUrl) URL.revokeObjectURL(currentAssetUrl);
         currentAssetUrl = null;
-        loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata };
-        const displayName = metadata.Name || file.name;
+        loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata, format, layers: archive.layers || [] };
+        const displayName = metadata.display_name || metadata.name || metadata.Name || file.name;
         document.getElementById("modName").textContent = displayName;
         document.getElementById("projectName").textContent = displayName;
-        document.getElementById("fileDesc").textContent = `${archive.entries.length} files · ${prettyBytes(file.size)}`;
+        document.getElementById("fileDesc").textContent = `${archive.entries.length} entries · ${format.toUpperCase()} · ${prettyBytes(file.size)}`;
         document.getElementById("fileCheck").textContent = "✓";
         renderPackageMeta(metadata, file.name);
         document.getElementById("assetSearch").value = "";
@@ -483,20 +679,24 @@
         document.getElementById("inspectEyebrow").textContent = "Package";
         document.getElementById("selectedName").textContent = displayName;
         document.getElementById("inspectTag").textContent = "Read only";
-        document.getElementById("selectedPath").textContent = metadataEntry ? "META/info.json loaded" : "No META/info.json found";
+        document.getElementById("selectedPath").textContent = metadataEntry
+          ? (format === "modpkg" ? "_meta_/info.msgpack loaded" : "META/info.json loaded")
+          : "No package metadata found";
         document.getElementById("gamePreview").classList.add("asset-mode");
         document.getElementById("visualControls").classList.add("hidden");
         document.getElementById("assetReadOnly").classList.remove("hidden");
         document.getElementById("assetPreviewTitle").textContent = displayName;
         document.getElementById("assetImage").classList.add("hidden");
         document.getElementById("assetMessage").classList.remove("hidden");
-        document.getElementById("assetMessage").textContent = "Choose an image from the Assets tab to preview it. Packed WAD archives are listed but not unpacked yet.";
-        setStatus("Package loaded");
-        toast(`Opened ${file.name} · ${archive.entries.length} package files`);
+        document.getElementById("assetMessage").textContent = format === "modpkg"
+          ? "Choose an entry to inspect it. Files are shown with their layer and target WAD. Zstandard-compressed chunks may not preview in this browser yet."
+          : "Choose an image from the Assets tab to preview it. Packed WAD archives are listed but not unpacked yet.";
+        setStatus(`${format.toUpperCase()} loaded`);
+        toast(`Opened ${file.name} · ${archive.entries.length} entries`);
       } catch (error) {
         document.getElementById("fileCheck").textContent = "!";
         setStatus("Could not read package");
-        toast(error.message || "Could not open this .fantome file.");
+        toast(error.message || "Could not open this mod package.");
       } finally {
         document.getElementById("openFile").disabled = false;
       }
@@ -597,7 +797,7 @@
     document.getElementById("filePicker").addEventListener("change", (event) => {
       const file = event.target.files[0];
       event.target.value = "";
-      if (file) openFantome(file);
+      if (file) openModFile(file);
     });
     document.getElementById("assetSearch").addEventListener("input", (event) => {
       const query = event.target.value.trim().toLowerCase();
