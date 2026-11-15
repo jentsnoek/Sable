@@ -14,12 +14,12 @@ A user downloads a HUD or champion-skin mod, opens its `.fantome` file, makes a 
 
 ### Current implementation
 
-The single-file browser app already opens ordinary ZIP-based `.fantome` packages locally, displays `META/info.json` metadata, lists and searches outer package entries, and previews common image files. It deliberately keeps editing and export disabled. It does not unpack WAD files, which are often the actual containers for HUD and champion-skin assets.
+The single-file browser app opens legacy ZIP-based `.fantome` packages and the current League Toolkit `.modpkg` format locally. It reads package metadata, lists/searches package entries, and previews common images when the browser can decode them. It deliberately keeps editing and export disabled. It does not unpack WAD files or decode Zstandard-compressed `.modpkg` chunks in browsers without a Zstandard decoder.
 
 Continue in small phases:
 
-1. **Inspect real samples:** use user-provided HUD and skin `.fantome` files. Do not assume every package has the same layout. A `.fantome` commonly has `META/info.json` and `WAD/` or `RAW/` content; WAD may itself be packed or represented as loose files. Identify real asset types before offering edits.
-2. **Read-only WAD support:** use a maintained LeagueToolkit reader to inspect nested WAD entries and preview supported textures. Handle malformed or unsupported files with clear errors.
+1. **Inspect real samples:** use user-provided HUD and skin `.fantome` and `.modpkg` files. Do not assume every package has the same layout. `.fantome` commonly has `META/info.json` and `WAD/` or `RAW/` content; `.modpkg` stores layered chunks with target WAD names. Identify real asset types before offering edits.
+2. **Read-only asset support:** use maintained LeagueToolkit readers for `.modpkg`, WAD, textures, and other resources; avoid extending the hand-written browser parser into a second format implementation. Handle malformed or unsupported files with clear errors.
 3. **Safe basic edits:** start with edits that can be reliably round-tripped for the supplied HUD and skin samples. Preserve untouched entries byte-for-byte where practical. Do not silently drop entries or layers.
 4. **Preview controls:** connect inspector controls only to real supported properties. Do not present mock controls as successful file edits.
 5. **Export:** create a new `.fantome`, preserve metadata and unknown entries, and confirm the output can be reopened. Keep source and output separate.
