@@ -19,13 +19,13 @@ The editor should only show controls that are supported by the selected asset. A
 
 ## Run Sable
 
-Open `index.html` in a modern browser. It has no build step or external dependencies.
+Open `index.html` in a modern browser. There is no build step. If the browser cannot decode Zstandard itself, Sable loads the small `fzstd` decoder from jsDelivr when a compressed entry is opened; the mod file contents are not sent to the CDN.
 
 ## Current limitations
 
 - ZIP64, encrypted, multi-disk, and packages over 512 MB are not supported.
 - `.modpkg` format versions other than version 1 are not supported.
-- Zstandard-compressed `.modpkg` entries are listed but may not preview in the browser.
+- Zstandard previews need native browser support or an internet connection to load the fallback decoder.
 - Individual previews are limited to 96 MB and ZIP store/deflate compression.
 - WAD major versions other than 3 and WAD chunked-Zstandard compression are not supported yet.
 - TEX visual previews currently support format IDs 10, 11, 12, and 20.
