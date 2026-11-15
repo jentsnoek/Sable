@@ -4,9 +4,9 @@ A beginner-friendly editor concept for customizing League of Legends `.fantome` 
 
 ## Current state
 
-`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It reads package metadata, groups and searches entries by asset type, and previews supported PNG, JPEG, WebP, GIF, and BMP images when their contents can be decoded by the browser. The original package is never uploaded or changed.
+`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It groups and searches package files by asset type and target WAD, opens supported `.wad.client` archives into grouped internal entries, and previews PNG, JPEG, WebP, GIF, BMP, and supported League `.tex` textures. Package contents stay in the browser; the original file is never changed.
 
-This is the first read-only file-inspection step. It does not unpack `.wad.client` archives or edit HUD/skin assets yet. `.modpkg` entries compressed with Zstandard can be listed, but browsers such as Chrome do not currently expose a built-in Zstandard decoder for previews. The HUD controls still affect only the sample preview, and export is intentionally disabled until real file edits can be preserved safely.
+This is a read-only inspection step. WAD entries are identified from their contents and shown by hash because WAD archives do not store the original paths. TEX previews currently support BC1, BC3, and BGRA8 textures. The HUD controls still affect only the sample preview, and export stays disabled until real file edits can be preserved safely.
 
 ## Intended workflow
 
@@ -27,7 +27,8 @@ Open `index.html` in a modern browser. It has no build step or external dependen
 - `.modpkg` format versions other than version 1 are not supported.
 - Zstandard-compressed `.modpkg` entries are listed but may not preview in the browser.
 - Individual previews are limited to 96 MB and ZIP store/deflate compression.
-- WAD archives are listed but not unpacked.
+- WAD major versions other than 3 and WAD chunked-Zstandard compression are not supported yet.
+- TEX visual previews currently support format IDs 10, 11, 12, and 20.
 - No package files are edited or exported yet.
 
 See [`CLAUDE_HANDOFF.md`](./CLAUDE_HANDOFF.md) for the next development stages and format references.
