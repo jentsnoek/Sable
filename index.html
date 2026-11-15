@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#151316">
-  <title>Sable — interface prototype</title>
+  <title>Sable — Fantome mod editor</title>
   <style>
     :root {
       color-scheme: dark;
@@ -64,6 +64,22 @@
     .tiny-action { border: 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
     .tiny-action:hover { color: var(--text); }
     .element-list { display: grid; gap: 4px; }
+    .asset-list { display: grid; gap: 4px; max-height: 56vh; overflow: auto; padding-right: 2px; }
+    .asset-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+    .asset-row:hover { background: var(--panel-2); }
+    .asset-row.selected { background: #30262d; border-color: #614754; }
+    .asset-kind { width: 31px; height: 25px; flex: 0 0 31px; display: grid; place-items: center; border: 1px solid #423d44; border-radius: 6px; background: #242126; color: var(--accent); font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .asset-details { min-width: 0; flex: 1; }
+    .asset-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dfe7; font-size: 10px; font-weight: 650; }
+    .asset-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); font-size: 8px; margin-top: 3px; }
+    .asset-size { flex: 0 0 auto; color: var(--soft); font-size: 8px; font-variant-numeric: tabular-nums; }
+    .asset-search { width: 100%; margin: 3px 0 9px; padding: 8px 9px; border: 1px solid #403a42; border-radius: 7px; outline: none; color: var(--text); background: #211f23; font-size: 10px; }
+    .asset-search:focus { border-color: #765261; }
+    .package-meta { display: grid; gap: 7px; margin-bottom: 10px; padding: 10px; border: 1px solid #39333b; border-radius: 8px; background: #201d21; }
+    .meta-pair { min-width: 0; }
+    .meta-label { color: var(--soft); font-size: 8px; text-transform: uppercase; letter-spacing: .1em; }
+    .meta-value { margin-top: 3px; color: #e5dde5; font-size: 10px; overflow-wrap: anywhere; }
+    .asset-empty-list { padding: 18px 10px; color: var(--muted); text-align: center; font-size: 10px; line-height: 1.5; }
     .element-row { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; transition: .15s ease; }
     .element-row:hover { background: var(--panel-2); }
     .element-row.selected { background: #30262d; border-color: #614754; }
@@ -86,6 +102,13 @@
     .canvas-wrap { flex: 1; min-height: 400px; padding: clamp(16px, 3vw, 38px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px; overflow: hidden; }
     .canvas-label { width: min(100%, 860px); display: flex; justify-content: space-between; color: var(--soft); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
     .game-preview { position: relative; width: min(100%, 860px); aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #51424c; border-radius: 11px; background: #162522; box-shadow: 0 22px 60px #0008; isolation: isolate; }
+    .game-preview.asset-mode > .map, .game-preview.asset-mode > .preview-top, .game-preview.asset-mode > .preview-mini, .game-preview.asset-mode > .mock-hud { display: none; }
+    .asset-overlay { position: absolute; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse at center, #29242c, #151316 72%); }
+    .game-preview.asset-mode .asset-overlay { display: flex; }
+    .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+    .asset-viewer-title { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dce5; font-size: 11px; font-weight: 650; }
+    .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; }
+    .asset-message { max-width: 390px; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.6; }
     .map { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #40554a 0, #2c423a 25%, #21372f 53%, #172723 100%); }
     .map::before { content: ""; position: absolute; width: 50%; height: 75%; left: 25%; top: 14%; transform: rotate(-30deg); border: 2px solid #86947b30; border-radius: 40% 60% 55% 45%; background: linear-gradient(135deg, #77795018, #1b282323 45%, #9e94601a); box-shadow: 0 0 0 38px #111a1733, 0 0 0 76px #b6ad6820; }
     .map::after { content: ""; position: absolute; inset: 0; opacity: .55; background-image: radial-gradient(circle at 30% 32%, #a3a5762e 0 2px, transparent 3px), radial-gradient(circle at 67% 60%, #b7ac7920 0 3px, transparent 4px), linear-gradient(120deg, transparent 48%, #d9cf8530 49%, #d9cf8530 50%, transparent 51%); background-size: 64px 64px, 91px 91px, 100% 100%; }
@@ -158,6 +181,7 @@
     .toast { position: fixed; left: 50%; bottom: 22px; z-index: 20; transform: translate(-50%, 14px); opacity: 0; pointer-events: none; padding: 10px 15px; border: 1px solid #67535f; border-radius: 9px; color: var(--text); background: #282329; box-shadow: 0 8px 28px #0008; font-size: 11px; transition: .22s ease; }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
     .hidden { display: none !important; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
     @media (max-width: 1120px) { .layout { grid-template-columns: 220px minmax(380px,1fr) 250px; }.brand { min-width: 180px; }.items { right: 160px; } }
     @media (max-width: 900px) { .layout { grid-template-columns: 210px minmax(360px,1fr); }.inspector { display: none; }.status { display: none; } }
     @media (max-width: 650px) { .topbar { padding: 0 12px; gap: 12px; }.brand { min-width: 0; }.brand-sub,.crumb,.topbar .quiet { display: none; }.layout { display: flex; flex-direction: column; }.sidebar { min-height: auto; border-right: 0; border-bottom: 1px solid var(--line); }.side-top { padding: 12px; }.side-tabs { display: none; }.side-content { padding: 0 10px 10px; }.section-head { margin: 0 3px 5px; }.element-list { grid-template-columns: repeat(3,1fr); }.element-row { padding: 5px; min-height: 53px; gap: 5px; flex-wrap: wrap; }.element-row .toggle { margin-left: auto; }.element-sub { display: none; }.side-bottom { display: none; }.workspace { min-height: 58vh; }.toolbar { height: 45px; flex-basis: 45px; padding: 0 10px; }.canvas-wrap { min-height: 300px; padding: 16px 9px; }.game-preview { border-radius: 6px; }.player-panel { left: 7px; bottom: 6px; transform: scale(.76); transform-origin: bottom left; }.ability-bar { bottom: 6px; transform: translateX(-50%) scale(.78); transform-origin: bottom center; }.items { right: 94px; bottom: 9px; transform: scale(.76); transform-origin: bottom right; }.minimap { right: 6px; bottom: 6px; width: 77px; }.preview-top { top: 6px; padding: 4px 7px; gap: 6px; font-size: 7px; }.preview-mini { top: 7px; right: 7px; font-size: 6px; } }
@@ -167,11 +191,11 @@
   <div class="app">
     <header class="topbar">
       <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SABLE</div><div class="brand-sub">Fantome mod editor</div></div></div>
-      <div class="crumb">Projects <span>›</span> <strong>Aether HUD</strong></div>
+      <div class="crumb">Projects <span>›</span> <strong id="projectName">Sable</strong></div>
       <div class="top-spacer"></div>
-      <div class="status"><span class="dot"></span> Preview ready</div>
+      <div class="status"><span class="dot"></span> <span id="statusText">Preview ready</span></div>
       <button class="btn quiet" id="openFile">＋ Open .fantome</button>
-      <button class="btn primary" id="exportBtn">Create edited copy <span>↗</span></button>
+      <button class="btn primary" id="exportBtn" disabled title="Editing and export are not implemented yet.">Export edited copy <span>↗</span></button>
       <input type="file" id="filePicker" accept=".fantome,.zip" hidden>
     </header>
 
@@ -179,20 +203,28 @@
       <aside class="sidebar">
         <div class="side-top">
           <div class="eyebrow">Current mod</div>
-          <div class="file-card"><div class="file-icon">FNT</div><div class="file-meta"><div class="file-name" id="modName">Aether HUD.fantome</div><div class="file-desc">29 assets · local project</div></div><span class="file-check">✓</span></div>
+          <div class="file-card"><div class="file-icon">FNT</div><div class="file-meta"><div class="file-name" id="modName">No mod opened</div><div class="file-desc" id="fileDesc">Choose a .fantome file to inspect</div></div><span class="file-check" id="fileCheck">·</span></div>
         </div>
-        <div class="side-tabs"><button class="side-tab active">Elements</button><button class="side-tab" data-toast="The asset browser will be connected to the mod parser.">Assets</button><button class="side-tab" data-toast="Project settings are part of the implementation handoff.">Settings</button></div>
+        <div class="side-tabs"><button class="side-tab active" data-view="elements">Preview</button><button class="side-tab" data-view="assets">Assets</button><button class="side-tab" data-toast="Project settings are planned for a later stage.">Settings</button></div>
         <div class="side-content">
-          <div class="section-head"><span class="eyebrow">HUD elements</span><button class="tiny-action" id="showAll">Show all</button></div>
-          <div class="element-list" id="elementList">
+          <div id="elementsView">
+            <div class="section-head"><span class="eyebrow">HUD preview elements</span><button class="tiny-action" id="showAll">Show all</button></div>
+            <div class="element-list" id="elementList">
             <div class="element-row" data-element="player"><span class="element-symbol">HP</span><div class="element-name-wrap"><div class="element-name">Player stats</div><div class="element-sub">Portrait · health · mana</div></div><button class="toggle on" aria-label="Toggle Player stats"></button></div>
             <div class="element-row selected" data-element="abilities"><span class="element-symbol">QW</span><div class="element-name-wrap"><div class="element-name">Ability bar</div><div class="element-sub">Abilities · summoner spells</div></div><button class="toggle on" aria-label="Toggle Ability bar"></button></div>
             <div class="element-row" data-element="items"><span class="element-symbol">◇</span><div class="element-name-wrap"><div class="element-name">Item slots</div><div class="element-sub">Inventory · trinket</div></div><button class="toggle on" aria-label="Toggle Item slots"></button></div>
             <div class="element-row" data-element="minimap"><span class="element-symbol">▧</span><div class="element-name-wrap"><div class="element-name">Minimap</div><div class="element-sub">Map · team indicators</div></div><button class="toggle on" aria-label="Toggle Minimap"></button></div>
             <div class="element-row" data-element="score"><span class="element-symbol">0:0</span><div class="element-name-wrap"><div class="element-name">Match score</div><div class="element-sub">Scoreboard · game timer</div></div><button class="toggle on" aria-label="Toggle Match score"></button></div>
+            </div>
+          </div>
+          <div id="assetsView" class="hidden">
+            <div class="section-head"><span class="eyebrow" id="assetCount">Package files</span><span class="tiny-action">Local only</span></div>
+            <div class="package-meta" id="packageMeta"><div class="asset-empty-list">Open a `.fantome` file to view its metadata and packaged assets.</div></div>
+            <input class="asset-search" id="assetSearch" type="search" placeholder="Search files…" aria-label="Search package files">
+            <div class="asset-list" id="packageFiles"><div class="asset-empty-list">Package files will appear here.</div></div>
           </div>
         </div>
-        <div class="side-bottom">Changes stay in this preview until you export a separate copy of the mod.</div>
+        <div class="side-bottom">The original file stays untouched. This build inspects packages and previews supported images; editing comes next.</div>
       </aside>
 
       <section class="workspace">
@@ -209,19 +241,23 @@
               <div class="items hud-target" data-target="items"><div class="item"></div><div class="item"></div><div class="item"></div><div class="item"></div><div class="item"></div><div class="item"></div></div>
               <div class="minimap hud-target" data-target="minimap"><div class="mini-diag"></div><div class="mini-diag two"></div><div class="mini-river"></div><span class="mini-dot"></span><span class="mini-dot red"></span></div>
             </div>
+            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
           </div>
         </div>
       </section>
 
       <aside class="inspector">
-        <div class="inspect-head"><div class="eyebrow">Selected element</div><div class="inspect-title"><h1 id="selectedName">Ability bar</h1><span class="tag">Editable</span></div><div class="inspect-path" id="selectedPath">HUD / Ability bar</div></div>
+        <div class="inspect-head"><div class="eyebrow" id="inspectEyebrow">Selected element</div><div class="inspect-title"><h1 id="selectedName">Ability bar</h1><span class="tag" id="inspectTag">Preview</span></div><div class="inspect-path" id="selectedPath">HUD / Ability bar</div></div>
         <div class="inspect-body">
+          <div id="visualControls">
           <div class="control-group"><div class="control-title"><span>Position</span><span>Canvas-relative</span></div><div class="xy-grid"><label><span class="field-label">Horizontal</span><span class="number-field"><input type="number" id="posX" value="0" min="-100" max="100"><span>px</span></span></label><label><span class="field-label">Vertical</span><span class="number-field"><input type="number" id="posY" value="0" min="-100" max="100"><span>px</span></span></label></div></div>
           <div class="control-group"><div class="control-title"><span>Scale</span><span id="scaleText">100%</span></div><div class="range-row"><input type="range" id="scaleRange" min="70" max="140" value="100"><span class="range-value" id="scaleValue">100%</span></div></div>
           <div class="control-group"><div class="control-title"><span>Opacity</span><span id="opacityText">100%</span></div><div class="range-row"><input type="range" id="opacityRange" min="20" max="100" value="100"><span class="range-value" id="opacityValue">100%</span></div></div>
           <div class="control-group"><div class="control-title"><span>Accent color</span><span>Element tint</span></div><div class="color-row"><label class="color-swatch"><input type="color" id="colorPicker" value="#eca8bd" aria-label="Choose accent color"></label><span class="color-code" id="colorCode">#ECA8BD</span><div class="color-presets"><button class="preset" style="background:#eca8bd" data-color="#eca8bd" aria-label="Rose"></button><button class="preset" style="background:#93c8f0" data-color="#93c8f0" aria-label="Blue"></button><button class="preset" style="background:#d8c178" data-color="#d8c178" aria-label="Gold"></button><button class="preset" style="background:#b7a0ee" data-color="#b7a0ee" aria-label="Violet"></button></div></div></div>
           <div class="control-group"><div class="check-row"><span>Show this element</span><button class="mini-switch" id="visibilitySwitch" aria-label="Toggle visibility"></button></div></div>
           <div class="tip"><strong>Safe editing:</strong> your original download should stay untouched. Export will make a new copy with your changes.</div>
+          </div>
+          <div class="tip hidden" id="assetReadOnly"><strong>Read-only preview:</strong> Sable can inspect this entry, but editing and export are not implemented yet.</div>
         </div>
       </aside>
     </main>
@@ -233,12 +269,237 @@
     let selected = "abilities";
     let toastTimer;
     let zoom = 100;
+    let loadedPackage = null;
+    let currentAssetUrl = null;
+    let previewRequest = 0;
+    const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
+    const MAX_PREVIEW_BYTES = 96 * 1024 * 1024;
+    const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp" };
     const toast = (message) => {
       const node = document.getElementById("toast");
       node.textContent = message;
       node.classList.add("show");
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
+    };
+    const setStatus = (message) => { document.getElementById("statusText").textContent = message; };
+    const prettyBytes = (bytes) => {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+    const fileExtension = (path) => {
+      const name = path.split("/").pop() || path;
+      const dot = name.lastIndexOf(".");
+      return dot < 0 ? "" : name.slice(dot).toLowerCase();
+    };
+    const entryKind = (path) => {
+      if (/\.wad(?:\.client)?$/i.test(path)) return "WAD";
+      const extension = fileExtension(path).replace(".", "");
+      return (extension || "FILE").slice(0, 4).toUpperCase();
+    };
+    const decodeZipName = (bytes, utf8) => {
+      try { return new TextDecoder(utf8 ? "utf-8" : "windows-1252").decode(bytes); }
+      catch { return new TextDecoder().decode(bytes); }
+    };
+    const readZipIndex = async (file) => {
+      if (file.size > MAX_ARCHIVE_BYTES) throw new Error("This package is over 512 MB; Sable's browser inspector cannot open it yet.");
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const view = new DataView(buffer);
+      const eocdMin = Math.max(0, bytes.length - 22 - 65535);
+      let eocd = -1;
+      for (let offset = bytes.length - 22; offset >= eocdMin; offset--) {
+        if (view.getUint32(offset, true) === 0x06054b50) {
+          const commentLength = view.getUint16(offset + 20, true);
+          if (offset + 22 + commentLength <= bytes.length) { eocd = offset; break; }
+        }
+      }
+      if (eocd < 0) throw new Error("This file is not a readable ZIP-based .fantome package.");
+      const disk = view.getUint16(eocd + 4, true);
+      const directoryDisk = view.getUint16(eocd + 6, true);
+      const entryCount = view.getUint16(eocd + 10, true);
+      const directorySize = view.getUint32(eocd + 12, true);
+      const directoryOffset = view.getUint32(eocd + 16, true);
+      if (disk !== 0 || directoryDisk !== 0) throw new Error("Multi-disk ZIP packages are not supported.");
+      if (entryCount === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) throw new Error("ZIP64 packages are not supported yet.");
+      if (entryCount > 5000) throw new Error("This package has more than 5,000 entries; Sable's browser inspector cannot display that many yet.");
+      if (directoryOffset + directorySize > bytes.length) throw new Error("The ZIP directory points outside the package; the file may be damaged.");
+
+      const entries = [];
+      let cursor = directoryOffset;
+      for (let index = 0; index < entryCount; index++) {
+        if (cursor + 46 > bytes.length || view.getUint32(cursor, true) !== 0x02014b50) throw new Error("The package's ZIP directory is malformed.");
+        const flags = view.getUint16(cursor + 8, true);
+        const method = view.getUint16(cursor + 10, true);
+        const compressedSize = view.getUint32(cursor + 20, true);
+        const size = view.getUint32(cursor + 24, true);
+        const nameLength = view.getUint16(cursor + 28, true);
+        const extraLength = view.getUint16(cursor + 30, true);
+        const commentLength = view.getUint16(cursor + 32, true);
+        const localOffset = view.getUint32(cursor + 42, true);
+        const recordEnd = cursor + 46 + nameLength + extraLength + commentLength;
+        if (recordEnd > bytes.length) throw new Error("The package's ZIP directory has an incomplete entry.");
+        const name = decodeZipName(bytes.subarray(cursor + 46, cursor + 46 + nameLength), Boolean(flags & 0x0800)).replace(/\\/g, "/");
+        if (name && !name.endsWith("/")) entries.push({ path: name, flags, method, compressedSize, size, localOffset });
+        cursor = recordEnd;
+      }
+      return { buffer, entries };
+    };
+    const readZipEntry = async (buffer, entry) => {
+      if (entry.flags & 1) throw new Error("This entry is encrypted and cannot be previewed.");
+      if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This entry is larger than 96 MB, so Sable skipped its preview.");
+      const view = new DataView(buffer);
+      const bytes = new Uint8Array(buffer);
+      if (entry.localOffset + 30 > bytes.length || view.getUint32(entry.localOffset, true) !== 0x04034b50) throw new Error("The entry's local ZIP header is damaged.");
+      const localNameLength = view.getUint16(entry.localOffset + 26, true);
+      const localExtraLength = view.getUint16(entry.localOffset + 28, true);
+      const dataOffset = entry.localOffset + 30 + localNameLength + localExtraLength;
+      const dataEnd = dataOffset + entry.compressedSize;
+      if (dataEnd > bytes.length) throw new Error("The entry extends beyond the package boundary.");
+      const compressed = bytes.subarray(dataOffset, dataEnd);
+      if (entry.method === 0) return compressed.slice();
+      if (entry.method !== 8) throw new Error(`Compression method ${entry.method} is not supported for previews.`);
+      if (typeof DecompressionStream === "undefined") throw new Error("This browser does not support ZIP deflate previews. Try an up-to-date version of Chrome or Edge.");
+      let stream;
+      try { stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw")); }
+      catch { throw new Error("The browser could not decompress this ZIP entry."); }
+      const output = new Uint8Array(await new Response(stream).arrayBuffer());
+      if (output.byteLength !== entry.size) throw new Error("The decompressed entry size did not match its ZIP record.");
+      return output;
+    };
+    const renderPackageMeta = (metadata, filename) => {
+      const panel = document.getElementById("packageMeta");
+      panel.replaceChildren();
+      const fields = [
+        ["Name", metadata?.Name || filename],
+        ["Author", metadata?.Author],
+        ["Version", metadata?.Version],
+        ["Description", metadata?.Description]
+      ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "");
+      for (const [label, value] of fields) {
+        const pair = document.createElement("div"); pair.className = "meta-pair";
+        const key = document.createElement("div"); key.className = "meta-label"; key.textContent = label;
+        const text = document.createElement("div"); text.className = "meta-value"; text.textContent = String(value);
+        pair.append(key, text); panel.append(pair);
+      }
+      if (!fields.some(([label]) => label === "Author")) {
+        const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata found."; panel.append(note);
+      }
+    };
+    const renderPackageFiles = (entries) => {
+      const list = document.getElementById("packageFiles");
+      list.replaceChildren();
+      document.getElementById("assetCount").textContent = `${entries.length} package files`;
+      if (!entries.length) {
+        const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
+      }
+      for (const entry of entries) {
+        const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = entry.path.toLowerCase();
+        const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path);
+        const details = document.createElement("span"); details.className = "asset-details";
+        const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
+        const path = document.createElement("span"); path.className = "asset-path"; path.textContent = entry.path;
+        const size = document.createElement("span"); size.className = "asset-size"; size.textContent = prettyBytes(entry.size);
+        details.append(name, path); row.append(kind, details, size);
+        row.addEventListener("click", () => selectPackageEntry(entry, row));
+        list.append(row);
+      }
+    };
+    const selectPackageEntry = async (entry, row) => {
+      const request = ++previewRequest;
+      document.querySelectorAll(".asset-row").forEach((node) => node.classList.toggle("selected", node === row));
+      document.getElementById("gamePreview").classList.add("asset-mode");
+      document.getElementById("visualControls").classList.add("hidden");
+      document.getElementById("assetReadOnly").classList.remove("hidden");
+      document.getElementById("inspectEyebrow").textContent = "Package entry";
+      document.getElementById("selectedName").textContent = entry.path.split("/").pop() || entry.path;
+      document.getElementById("inspectTag").textContent = entryKind(entry.path);
+      document.getElementById("selectedPath").textContent = `${prettyBytes(entry.size)} · ${entry.path}`;
+      document.getElementById("assetPreviewTitle").textContent = entry.path;
+      const image = document.getElementById("assetImage");
+      const message = document.getElementById("assetMessage");
+      image.classList.add("hidden"); image.removeAttribute("src");
+      if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
+      const mime = IMAGE_MIME[fileExtension(entry.path)];
+      if (!mime) {
+        message.classList.remove("hidden");
+        message.textContent = /\.wad(?:\.client)?$/i.test(entry.path)
+          ? "This is a packed WAD archive. Sable can list it, but unpacking and editing WAD contents are the next development stage."
+          : "Sable can list this file, but its format does not have a preview yet.";
+        return;
+      }
+      message.textContent = "Loading image preview…"; message.classList.remove("hidden");
+      try {
+        const data = await readZipEntry(loadedPackage.buffer, entry);
+        if (request !== previewRequest) return;
+        currentAssetUrl = URL.createObjectURL(new Blob([data], { type: mime }));
+        image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
+      } catch (error) {
+        if (request !== previewRequest) return;
+        message.textContent = error.message || "Sable could not preview this image.";
+      }
+    };
+    const switchSidebarView = (view) => {
+      document.querySelectorAll(".side-tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
+      document.getElementById("elementsView").classList.toggle("hidden", view !== "elements");
+      document.getElementById("assetsView").classList.toggle("hidden", view !== "assets");
+      if (view === "elements") {
+        previewRequest++;
+        document.getElementById("gamePreview").classList.remove("asset-mode");
+        document.getElementById("assetReadOnly").classList.add("hidden");
+        document.getElementById("visualControls").classList.remove("hidden");
+        document.getElementById("inspectEyebrow").textContent = "Selected element";
+        document.getElementById("inspectTag").textContent = "Preview";
+        selectElement(selected);
+      }
+    };
+    const openFantome = async (file) => {
+      if (!file) return;
+      previewRequest++;
+      setStatus("Reading package…");
+      document.getElementById("openFile").disabled = true;
+      document.getElementById("fileCheck").textContent = "…";
+      try {
+        const archive = await readZipIndex(file);
+        const metadataEntry = archive.entries.find((entry) => entry.path.toLowerCase() === "meta/info.json");
+        let metadata = {};
+        if (metadataEntry) {
+          try { metadata = JSON.parse(new TextDecoder().decode(await readZipEntry(archive.buffer, metadataEntry))); }
+          catch (error) { throw new Error(`Could not read META/info.json: ${error.message}`); }
+        }
+        if (currentAssetUrl) URL.revokeObjectURL(currentAssetUrl);
+        currentAssetUrl = null;
+        loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata };
+        const displayName = metadata.Name || file.name;
+        document.getElementById("modName").textContent = displayName;
+        document.getElementById("projectName").textContent = displayName;
+        document.getElementById("fileDesc").textContent = `${archive.entries.length} files · ${prettyBytes(file.size)}`;
+        document.getElementById("fileCheck").textContent = "✓";
+        renderPackageMeta(metadata, file.name);
+        document.getElementById("assetSearch").value = "";
+        renderPackageFiles(archive.entries);
+        switchSidebarView("assets");
+        document.getElementById("inspectEyebrow").textContent = "Package";
+        document.getElementById("selectedName").textContent = displayName;
+        document.getElementById("inspectTag").textContent = "Read only";
+        document.getElementById("selectedPath").textContent = metadataEntry ? "META/info.json loaded" : "No META/info.json found";
+        document.getElementById("gamePreview").classList.add("asset-mode");
+        document.getElementById("visualControls").classList.add("hidden");
+        document.getElementById("assetReadOnly").classList.remove("hidden");
+        document.getElementById("assetPreviewTitle").textContent = displayName;
+        document.getElementById("assetImage").classList.add("hidden");
+        document.getElementById("assetMessage").classList.remove("hidden");
+        document.getElementById("assetMessage").textContent = "Choose an image from the Assets tab to preview it. Packed WAD archives are listed but not unpacked yet.";
+        setStatus("Package loaded");
+        toast(`Opened ${file.name} · ${archive.entries.length} package files`);
+      } catch (error) {
+        document.getElementById("fileCheck").textContent = "!";
+        setStatus("Could not read package");
+        toast(error.message || "Could not open this .fantome file.");
+      } finally {
+        document.getElementById("openFile").disabled = false;
+      }
     };
     const targetsFor = (key) => [...document.querySelectorAll(`[data-target="${key}"]`)];
     const applyPosition = () => {
@@ -328,16 +589,35 @@
     });
     document.getElementById("zoomIn").addEventListener("click", () => { zoom = Math.min(120, zoom + 10); document.getElementById("zoomLabel").textContent = `${zoom}%`; document.getElementById("gamePreview").style.width = `min(${zoom}%, 860px)`; });
     document.getElementById("zoomOut").addEventListener("click", () => { zoom = Math.max(70, zoom - 10); document.getElementById("zoomLabel").textContent = `${zoom}%`; document.getElementById("gamePreview").style.width = `min(${zoom}%, 860px)`; });
-    document.querySelectorAll(".side-tab[data-toast]").forEach((tab) => tab.addEventListener("click", () => toast(tab.dataset.toast)));
-    document.querySelectorAll(".side-tab").forEach((tab) => tab.addEventListener("click", () => { document.querySelectorAll(".side-tab").forEach((other) => other.classList.remove("active")); tab.classList.add("active"); }));
+    document.querySelectorAll(".side-tab").forEach((tab) => tab.addEventListener("click", () => {
+      if (tab.dataset.view) switchSidebarView(tab.dataset.view);
+      else if (tab.dataset.toast) toast(tab.dataset.toast);
+    }));
     document.getElementById("openFile").addEventListener("click", () => document.getElementById("filePicker").click());
     document.getElementById("filePicker").addEventListener("change", (event) => {
       const file = event.target.files[0];
-      if (!file) return;
-      document.getElementById("modName").textContent = file.name;
-      toast("File selected. Package reading is the next implementation step.");
+      event.target.value = "";
+      if (file) openFantome(file);
     });
-    document.getElementById("exportBtn").addEventListener("click", () => toast("Export will create a separate edited mod copy."));
+    document.getElementById("assetSearch").addEventListener("input", (event) => {
+      const query = event.target.value.trim().toLowerCase();
+      const rows = [...document.querySelectorAll(".asset-row")];
+      let visible = 0;
+      rows.forEach((row) => {
+        const match = row.dataset.search.includes(query);
+        row.classList.toggle("hidden", !match);
+        if (match) visible++;
+      });
+      let empty = document.getElementById("assetSearchEmpty");
+      if (!empty) {
+        empty = document.createElement("div");
+        empty.id = "assetSearchEmpty";
+        empty.className = "asset-empty-list";
+        empty.textContent = "No files match your search.";
+      }
+      if (query && visible === 0) document.getElementById("packageFiles").append(empty);
+      else empty.remove();
+    });
     selectElement("abilities");
   </script>
 </body>
