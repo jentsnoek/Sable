@@ -283,6 +283,7 @@
     let currentWadView = null;
     let currentAssetUrl = null;
     let previewRequest = 0;
+    let fzstdLoadPromise = null;
     const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
     const MAX_PREVIEW_BYTES = 96 * 1024 * 1024;
     const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp" };
@@ -391,6 +392,29 @@
       if (expectedSize !== undefined && output.byteLength !== expectedSize) throw new Error("The decompressed asset size did not match its archive record.");
       return output;
     };
+    const loadFzstd = () => {
+      if (globalThis.fzstd?.decompress) return Promise.resolve(globalThis.fzstd);
+      if (!fzstdLoadPromise) fzstdLoadPromise = new Promise((resolve) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js";
+        script.onload = () => resolve(globalThis.fzstd?.decompress ? globalThis.fzstd : null);
+        script.onerror = () => resolve(null);
+        document.head.append(script);
+      });
+      return fzstdLoadPromise;
+    };
+    const decompressZstd = async (compressed, expectedSize) => {
+      try { return await decompressBytes(compressed, "zstd", expectedSize); }
+      catch (nativeError) {
+        const decoder = await loadFzstd();
+        if (!decoder) throw new Error("This browser could not decode Zstandard, and Sable could not load its fallback decoder. Refresh Sable with an internet connection, then reopen the entry.");
+        let output;
+        try { output = decoder.decompress(compressed); }
+        catch { throw new Error("Sable's fallback Zstandard decoder could not read this chunk."); }
+        if (expectedSize !== undefined && output.byteLength !== expectedSize) throw new Error("The decompressed asset size did not match its archive record.");
+        return output;
+      }
+    };
     const parseWadIndex = (input, wadPath) => {
       const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
       if (bytes.length < 272 || bytes[0] !== 0x52 || bytes[1] !== 0x57) throw new Error("This entry is not a readable League WAD archive.");
@@ -426,7 +450,7 @@
       const compressed = wadBytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
       if (entry.compression === 0) return compressed.slice();
       if (entry.compression === 1) return decompressBytes(compressed, "gzip", entry.size);
-      if (entry.compression === 3) return decompressBytes(compressed, "zstd", entry.size);
+      if (entry.compression === 3) return decompressZstd(compressed, entry.size);
       throw new Error(`${entry.compressionName} entries can be listed, but Sable cannot open them yet.`);
     };
     const identifyWadAsset = (bytes) => {
@@ -700,18 +724,7 @@
       if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This entry is larger than 96 MB, so Sable skipped its preview.");
       const compressed = bytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
       if (entry.compression === 0) return compressed.slice();
-      if (entry.compression === 1) {
-        if (typeof DecompressionStream === "undefined") throw new Error("This browser cannot decompress Zstandard modpkg chunks.");
-        try {
-          const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("zstd"));
-          const output = new Uint8Array(await new Response(stream).arrayBuffer());
-          if (output.byteLength !== entry.size) throw new Error("The decompressed chunk size did not match its modpkg record.");
-          return output;
-        } catch (error) {
-          if (error.message?.includes("did not match")) throw error;
-          throw new Error("This chunk uses Zstandard compression, which this browser cannot decode yet. Sable can still list the modpkg contents.");
-        }
-      }
+      if (entry.compression === 1) return decompressZstd(compressed, entry.size);
       throw new Error(`Compression type ${entry.compression} is not supported.`);
     };
     const renderPackageMeta = (metadata, filename) => {
