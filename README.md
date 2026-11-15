@@ -4,7 +4,9 @@ A beginner-friendly editor concept for customizing League of Legends `.fantome` 
 
 ## Current state
 
-`index.html` is an interactive UI prototype, currently showing the HUD editing view. It lets you select HUD elements, hide them in the preview, and adjust preview position, scale, opacity, and accent color. It does **not** read or modify `.fantome` files yet; those controls currently affect only the sample preview. Skin-mod editing is part of the project scope and needs its own asset-aware preview and controls.
+`index.html` now opens ZIP-based `.fantome` packages locally, reads `META/info.json` when present, lists files, searches paths, and previews supported PNG, JPEG, WebP, GIF, and BMP images. The original package is never uploaded or changed.
+
+This is the first read-only file-inspection step. It does not unpack `.wad.client` archives or edit HUD/skin assets yet. The HUD controls still affect only the sample preview, and export is intentionally disabled until real file edits can be preserved safely.
 
 ## Intended workflow
 
@@ -15,13 +17,18 @@ A beginner-friendly editor concept for customizing League of Legends `.fantome` 
 
 The editor should only show controls that are supported by the selected asset. A texture can be recolored or replaced; a layout element might support moving or resizing; some files may not expose either safely.
 
-## Run the UI prototype
+## Run Sable
 
 Open `index.html` in a modern browser. It has no build step or external dependencies.
 
-## Project status
+## Current limitations
 
-Design prototype only. The `.fantome` reader, HUD and skin asset handling, edit pipeline, and exporter still need implementation. See [`CLAUDE_HANDOFF.md`](./CLAUDE_HANDOFF.md) for the coding brief.
+- ZIP64, encrypted, multi-disk, and packages over 512 MB are not supported.
+- Individual previews are limited to 96 MB and ZIP store/deflate compression.
+- WAD archives are listed but not unpacked.
+- No package files are edited or exported yet.
+
+See [`CLAUDE_HANDOFF.md`](./CLAUDE_HANDOFF.md) for the next development stages and format references.
 
 ## Notes
 
