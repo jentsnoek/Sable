@@ -65,6 +65,14 @@
     .tiny-action:hover { color: var(--text); }
     .element-list { display: grid; gap: 4px; }
     .asset-list { display: grid; gap: 4px; max-height: 56vh; overflow: auto; padding-right: 2px; }
+    .asset-group { min-width: 0; overflow: hidden; border: 1px solid #39333b; border-radius: 8px; background: #1d1a1e; }
+    .asset-group summary { display: flex; align-items: center; gap: 7px; padding: 9px 10px; color: #e5dde5; cursor: pointer; list-style: none; font-size: 10px; font-weight: 700; }
+    .asset-group summary::-webkit-details-marker { display: none; }
+    .asset-group summary::before { content: "+"; color: var(--accent); font-size: 10px; }
+    .asset-group[open] summary::before { content: "-"; }
+    .asset-group-title { min-width: 0; flex: 1; }
+    .asset-group-count { color: var(--muted); font-size: 9px; font-weight: 550; }
+    .asset-group-rows { display: grid; gap: 3px; padding: 0 4px 5px; }
     .asset-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
     .asset-row:hover { background: var(--panel-2); }
     .asset-row.selected { background: #30262d; border-color: #614754; }
@@ -574,6 +582,19 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
+    const assetGroupOrder = ["Textures", "Images", "WAD archives", "WAD contents", "Models & animation", "Audio", "Metadata", "Other"];
+    const assetGroupFor = (entry) => {
+      const path = entry.path.toLowerCase();
+      const extension = fileExtension(path);
+      if (entry.format === "wad-chunk") return "WAD contents";
+      if (/\.wad(?:\.client)?$/i.test(path)) return "WAD archives";
+      if ([".tex", ".dds"].includes(extension)) return "Textures";
+      if (IMAGE_MIME[extension]) return "Images";
+      if ([".skn", ".skl", ".anm", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension)) return "Models & animation";
+      if ([".bnk", ".wem", ".wpk"].includes(extension)) return "Audio";
+      if ([".json", ".msgpack", ".bin"].includes(extension) || path.startsWith("_meta/") || path.startsWith("meta/")) return "Metadata";
+      return "Other";
+    };
     const renderPackageFiles = (entries) => {
       const list = document.getElementById("packageFiles");
       list.replaceChildren();
@@ -581,17 +602,36 @@
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
       }
+      const groups = new Map();
       for (const entry of entries) {
-        const displayPath = entry.displayPath || entry.path;
-        const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = displayPath.toLowerCase();
-        const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path);
-        const details = document.createElement("span"); details.className = "asset-details";
-        const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
-        const path = document.createElement("span"); path.className = "asset-path"; path.textContent = displayPath;
-        const size = document.createElement("span"); size.className = "asset-size"; size.textContent = prettyBytes(entry.size);
-        details.append(name, path); row.append(kind, details, size);
-        row.addEventListener("click", () => selectPackageEntry(entry, row));
-        list.append(row);
+        const group = assetGroupFor(entry);
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group).push(entry);
+      }
+      for (const groupName of assetGroupOrder) {
+        const groupEntries = groups.get(groupName);
+        if (!groupEntries?.length) continue;
+        groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path));
+        const group = document.createElement("details"); group.className = "asset-group"; group.open = groupEntries.length <= 20;
+        const heading = document.createElement("summary");
+        const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
+        const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
+        heading.append(title, count);
+        const rows = document.createElement("div"); rows.className = "asset-group-rows";
+        for (const entry of groupEntries) {
+          const displayPath = entry.displayPath || entry.path;
+          const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = displayPath.toLowerCase();
+          const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path);
+          const details = document.createElement("span"); details.className = "asset-details";
+          const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
+          const path = document.createElement("span"); path.className = "asset-path"; path.textContent = displayPath;
+          const size = document.createElement("span"); size.className = "asset-size"; size.textContent = prettyBytes(entry.size);
+          details.append(name, path); row.append(kind, details, size);
+          row.addEventListener("click", () => selectPackageEntry(entry, row));
+          rows.append(row);
+        }
+        group.append(heading, rows);
+        list.append(group);
       }
     };
     const selectPackageEntry = async (entry, row) => {
@@ -808,6 +848,11 @@
         row.classList.toggle("hidden", !match);
         if (match) visible++;
       });
+      document.querySelectorAll(".asset-group").forEach((group) => {
+        const matches = group.querySelectorAll(".asset-row:not(.hidden)").length;
+        group.classList.toggle("hidden", matches === 0);
+        if (query && matches) group.open = true;
+      });
       let empty = document.getElementById("assetSearchEmpty");
       if (!empty) {
         empty = document.createElement("div");
@@ -822,3 +867,4 @@
   </script>
 </body>
 </html>
+
