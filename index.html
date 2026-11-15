@@ -503,7 +503,7 @@
       failIfTruncated(cursor, chunkCount * 61);
       const chunks = [];
       for (let i = 0; i < chunkCount; i++) {
-        const pathHash = u64(cursor); cursor += 8;
+        cursor += 8; // The path hash is informational; the indexed path table gives the display name.
         const dataOffset = u64(cursor); cursor += 8;
         const compression = bytes[cursor++];
         const compressedSize = u64(cursor); cursor += 8;
@@ -521,7 +521,7 @@
         const layer = layerIndex === 0xffffffff ? "" : layers[layerIndex].name;
         const wad = wadIndex === 0xffffffff ? "" : wads[wadIndex];
         const displayPath = [layer, wad, path].filter(Boolean).join(" / ");
-        chunks.push({ path, displayPath, layer, wad, pathHash, dataOffset, compression, compressedSize, size, format: "modpkg" });
+        chunks.push({ path, displayPath, layer, wad, dataOffset, compression, compressedSize, size, format: "modpkg" });
       }
       const metadataEntry = chunks.find((entry) => entry.path.toLowerCase() === "_meta_/info.msgpack");
       let metadata = {};
