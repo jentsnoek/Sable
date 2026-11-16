@@ -31,9 +31,8 @@ Open `index.html` in a modern browser. There is no build step. If the browser ca
 - TEX visual previews currently support format IDs 10, 11, 12, and 20.
 - No package files are edited or exported yet.
 
-See [`CLAUDE_HANDOFF.md`](./CLAUDE_HANDOFF.md) for the next development stages and format references.
+See [`DEVELOPMENT.md`](./DEVELOPMENT.md) for the next development stages and format references.
 
 ## Notes
 
 This is an unofficial community project and is not affiliated with or endorsed by Riot Games.
-
