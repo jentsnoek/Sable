@@ -168,6 +168,7 @@ body {
 .meta-details > summary, .asset-group summary { color: #e9dfe8; }
 .asset-group summary::before { color: var(--accent); }
 .asset-group[open] { border-color: #58445a; }
+.asset-list { max-height: none; overflow: visible; padding-right: 0; }
 .asset-row { min-height: 42px; padding: 7px; border-radius: 8px; }
 .asset-row:hover { background: #302432; }
 .asset-row.selected { background: #3c2a38; border-color: #78566a; }
