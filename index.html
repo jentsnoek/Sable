@@ -65,6 +65,8 @@
     .tiny-action:hover { color: var(--text); }
     .element-list { display: grid; gap: 4px; }
     .asset-list { display: grid; gap: 4px; max-height: 56vh; overflow: auto; padding-right: 2px; }
+    .asset-guide { margin: 0 2px 10px; padding: 9px 10px; border-left: 2px solid #ad6e85; border-radius: 0 6px 6px 0; color: var(--muted); background: #241f24; font-size: 9px; line-height: 1.55; }
+    .asset-guide strong { color: #e7dbe2; font-weight: 700; }
     .asset-group { min-width: 0; overflow: hidden; border: 1px solid #39333b; border-radius: 8px; background: #1d1a1e; }
     .asset-group summary { display: flex; align-items: center; gap: 7px; padding: 9px 10px; color: #e5dde5; cursor: pointer; list-style: none; font-size: 10px; font-weight: 700; }
     .asset-group summary::-webkit-details-marker { display: none; }
@@ -112,6 +114,13 @@
     .canvas-label { width: min(100%, 860px); display: flex; justify-content: space-between; color: var(--soft); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
     .game-preview { position: relative; width: min(100%, 860px); aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #51424c; border-radius: 11px; background: #162522; box-shadow: 0 22px 60px #0008; isolation: isolate; }
     .game-preview.asset-mode > .map, .game-preview.asset-mode > .preview-top, .game-preview.asset-mode > .preview-mini, .game-preview.asset-mode > .mock-hud { display: none; }
+    .game-preview.no-package > .map, .game-preview.no-package > .preview-top, .game-preview.no-package > .preview-mini, .game-preview.no-package > .mock-hud { display: none; }
+    .game-preview.no-package > .empty-canvas { display: flex; }
+    .empty-canvas { position: absolute; inset: 0; z-index: 6; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 28px; text-align: center; background: radial-gradient(ellipse at center, #28232a, #151316 72%); }
+    .empty-mark { width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid #765261; border-radius: 13px; color: #f1c4d3; background: #3a2d35; font-size: 19px; font-weight: 900; box-shadow: 0 8px 28px #eca8bd20; }
+    .empty-title { color: #f0e8ef; font-size: 16px; font-weight: 750; }
+    .empty-copy { max-width: 350px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .empty-note { color: var(--soft); font-size: 9px; }
     .asset-overlay { position: absolute; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse at center, #29242c, #151316 72%); }
     .game-preview.asset-mode .asset-overlay { display: flex; }
     .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
@@ -217,7 +226,8 @@
         <div class="side-tabs"><button class="side-tab active" data-view="elements">Preview</button><button class="side-tab" data-view="assets">Assets</button><button class="side-tab" data-toast="Project settings are planned for a later stage.">Settings</button></div>
         <div class="side-content">
           <div id="elementsView">
-            <div class="section-head"><span class="eyebrow">HUD preview elements</span><button class="tiny-action" id="showAll">Show all</button></div>
+            <div class="asset-guide" id="sampleNote"><strong>Sample only:</strong> these controls change the mock preview. They do not edit the selected mod file yet.</div>
+            <div class="section-head"><span class="eyebrow">Sample HUD elements</span><button class="tiny-action" id="showAll">Show all</button></div>
             <div class="element-list" id="elementList">
             <div class="element-row" data-element="player"><span class="element-symbol">HP</span><div class="element-name-wrap"><div class="element-name">Player stats</div><div class="element-sub">Portrait · health · mana</div></div><button class="toggle on" aria-label="Toggle Player stats"></button></div>
             <div class="element-row selected" data-element="abilities"><span class="element-symbol">QW</span><div class="element-name-wrap"><div class="element-name">Ability bar</div><div class="element-sub">Abilities · summoner spells</div></div><button class="toggle on" aria-label="Toggle Ability bar"></button></div>
@@ -227,6 +237,7 @@
             </div>
           </div>
           <div id="assetsView" class="hidden">
+            <div class="asset-guide" id="assetGuide"><strong>For HUDs:</strong> start with Likely HUD textures. <strong>For skins:</strong> explore textures and models. Search for a champion or names like HUD, atlas, minimap, or ability. Sable can preview files, but editing is not available yet.</div>
             <div class="section-head"><span class="eyebrow" id="assetCount">Package files</span><span class="tiny-action">Local only</span></div>
             <div class="package-meta" id="packageMeta"><div class="asset-empty-list">Open a `.fantome` file to view its metadata and packaged assets.</div></div>
             <input class="asset-search" id="assetSearch" type="search" placeholder="Search files…" aria-label="Search package files">
@@ -241,7 +252,8 @@
         <div class="toolbar"><span class="toolbar-title">LIVE PREVIEW</span><span class="toolbar-line"></span><span class="tool-label">Canvas</span><span class="select-like">Summoner's Rift ▾</span><span class="toolbar-spacer"></span><button class="btn icon" id="zoomOut" aria-label="Zoom out">−</button><span class="tool-label" id="zoomLabel">100%</span><button class="btn icon" id="zoomIn" aria-label="Zoom in">＋</button><button class="btn icon" id="resetBtn" aria-label="Reset selected element">↺</button></div>
         <div class="canvas-wrap">
           <div class="canvas-label"><span>In-game preview · 16:9</span><span>Click an element on the left to edit</span></div>
-          <div class="game-preview" id="gamePreview">
+          <div class="game-preview no-package" id="gamePreview">
+            <div class="empty-canvas" id="emptyCanvas"><div class="empty-mark">S</div><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a League .fantome or .modpkg file to browse its HUD or skin assets.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod file</button><div class="empty-note">Sable reads the selected file locally and leaves your original untouched.</div></div>
             <div class="map"><div class="lane"></div><div class="lane two"></div><div class="river"></div><div class="map-controls">SUMMONER'S RIFT<span>PREVIEW ENVIRONMENT</span></div></div>
             <div class="preview-top hud-target" data-target="score"><div class="team-score"><span class="team-blue">3</span><span>—</span><span class="team-red">2</span></div><span class="clock">12:48</span><span>◈</span><span>2.4k</span></div>
             <div class="preview-mini">FPS: 144 &nbsp; MS: 28</div>
@@ -259,7 +271,8 @@
       <aside class="inspector">
         <div class="inspect-head"><div class="eyebrow" id="inspectEyebrow">Selected element</div><div class="inspect-title"><h1 id="selectedName">Ability bar</h1><span class="tag" id="inspectTag">Preview</span></div><div class="inspect-path" id="selectedPath">HUD / Ability bar</div></div>
         <div class="inspect-body">
-          <div id="visualControls">
+          <div class="tip" id="startPrompt"><strong>Open a mod to begin.</strong> Sable can inspect its contents now. Real HUD edits and export are still being built.</div>
+          <div class="hidden" id="visualControls">
           <div class="control-group"><div class="control-title"><span>Position</span><span>Canvas-relative</span></div><div class="xy-grid"><label><span class="field-label">Horizontal</span><span class="number-field"><input type="number" id="posX" value="0" min="-100" max="100"><span>px</span></span></label><label><span class="field-label">Vertical</span><span class="number-field"><input type="number" id="posY" value="0" min="-100" max="100"><span>px</span></span></label></div></div>
           <div class="control-group"><div class="control-title"><span>Scale</span><span id="scaleText">100%</span></div><div class="range-row"><input type="range" id="scaleRange" min="70" max="140" value="100"><span class="range-value" id="scaleValue">100%</span></div></div>
           <div class="control-group"><div class="control-title"><span>Opacity</span><span id="opacityText">100%</span></div><div class="range-row"><input type="range" id="opacityRange" min="20" max="100" value="100"><span class="range-value" id="opacityValue">100%</span></div></div>
@@ -752,13 +765,14 @@
       }
     };
     const assetGroupOrder = ["Textures", "Images", "WAD archives", "WAD contents", "Models & animation", "Audio", "Game data", "Metadata", "Other WAD entries", "Unclassified WAD entries", "Other"];
+    assetGroupOrder.unshift("Likely HUD textures", "Other textures");
     const assetGroupFor = (entry) => {
-      const path = entry.path.toLowerCase();
-      const extension = fileExtension(path);
+      const path = `${entry.path} ${entry.displayPath || ""}`.toLowerCase();
+      const extension = fileExtension(entry.path);
       if (entry.format === "wad-chunk") return entry.assetType || "WAD contents";
       let group = "Other";
       if (/\.wad(?:\.client)?$/i.test(path)) group = "WAD archives";
-      else if ([".tex", ".dds"].includes(extension)) group = "Textures";
+      else if ([".tex", ".dds"].includes(extension)) group = /(hud|atlas|minimap|ability|spell|summoner|scoreboard|health.?bar|resource.?bar)/i.test(path) ? "Likely HUD textures" : "Other textures";
       else if (IMAGE_MIME[extension]) group = "Images";
       else if ([".skn", ".skl", ".anm", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension)) group = "Models & animation";
       else if ([".bnk", ".wem", ".wpk"].includes(extension)) group = "Audio";
@@ -768,6 +782,10 @@
     const renderPackageFiles = (entries, countLabel = "package files") => {
       const list = document.getElementById("packageFiles");
       list.replaceChildren();
+      const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
+      document.getElementById("assetGuide").textContent = hasHashedWadEntries
+        ? "WAD entries use hashed names, so Sable can group them by detected file type but cannot identify each HUD part yet. Expand Textures to inspect TEX files."
+        : "HUD mods: start with Likely HUD textures; this label is guessed from filenames. Skin mods: explore Other textures and Models & animation. Search for the champion or names like HUD, atlas, minimap, or ability. These files can be previewed, but not edited yet.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
@@ -786,7 +804,7 @@
         const groupEntries = groups.get(groupName);
         if (!groupEntries?.length) continue;
         groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
-        const group = document.createElement("details"); group.className = "asset-group"; group.open = true;
+        const group = document.createElement("details"); group.className = "asset-group"; group.open = groupName.startsWith("Likely HUD textures") || groupName.startsWith("WAD archives");
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -794,7 +812,7 @@
         const rows = document.createElement("div"); rows.className = "asset-group-rows";
         for (const entry of groupEntries) {
           const displayPath = entry.displayPath || entry.path;
-          const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = displayPath.toLowerCase();
+          const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = `${displayPath} ${groupName}`.toLowerCase();
           const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path, entry.assetType);
           const details = document.createElement("span"); details.className = "asset-details";
           const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
@@ -907,14 +925,19 @@
       document.querySelectorAll(".side-tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
       document.getElementById("elementsView").classList.toggle("hidden", view !== "elements");
       document.getElementById("assetsView").classList.toggle("hidden", view !== "assets");
+      setCanvasState(!loadedPackage ? "empty" : view === "elements" ? "sample" : "assets");
       if (view === "elements") {
         previewRequest++;
         document.getElementById("gamePreview").classList.remove("asset-mode");
         document.getElementById("assetReadOnly").classList.add("hidden");
-        document.getElementById("visualControls").classList.remove("hidden");
+        document.getElementById("visualControls").classList.toggle("hidden", !loadedPackage);
         document.getElementById("inspectEyebrow").textContent = "Selected element";
         document.getElementById("inspectTag").textContent = "Preview";
         selectElement(selected);
+      } else if (loadedPackage) {
+        previewRequest++;
+        document.getElementById("gamePreview").classList.add("asset-mode");
+        document.getElementById("assetReadOnly").classList.add("hidden");
       }
     };
     const returnToPackageFiles = () => {
@@ -961,6 +984,8 @@
         currentWadView = null;
         document.getElementById("wadBack").classList.add("hidden");
         loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata, format, layers: archive.layers || [] };
+        document.getElementById("gamePreview").classList.remove("no-package");
+        setCanvasState("assets");
         const displayName = metadata.display_name || metadata.name || metadata.Name || file.name;
         document.getElementById("modName").textContent = displayName;
         document.getElementById("projectName").textContent = displayName;
@@ -1088,6 +1113,7 @@
       else if (tab.dataset.toast) toast(tab.dataset.toast);
     }));
     document.getElementById("openFile").addEventListener("click", () => document.getElementById("filePicker").click());
+    document.getElementById("emptyOpenFile").addEventListener("click", () => document.getElementById("filePicker").click());
     document.getElementById("wadBack").addEventListener("click", returnToPackageFiles);
     document.getElementById("filePicker").addEventListener("change", (event) => {
       const file = event.target.files[0];
@@ -1118,8 +1144,31 @@
       if (query && visible === 0) document.getElementById("packageFiles").append(empty);
       else empty.remove();
     });
+    const setCanvasState = (state) => {
+      const mode = document.querySelector(".select-like");
+      const labels = document.querySelectorAll(".canvas-label span");
+      document.getElementById("visualControls").classList.toggle("hidden", state !== "sample");
+      document.getElementById("startPrompt").classList.toggle("hidden", state !== "empty");
+      document.getElementById("elementList").classList.toggle("hidden", state !== "sample");
+      document.getElementById("sampleNote").textContent = state === "empty"
+        ? "Open a mod file to explore its assets. Preview controls appear after a mod is loaded."
+        : "Sample only: these controls change the mock preview and never edit files in your mod.";
+      if (state === "empty") {
+        mode.textContent = "Open a mod to start";
+        labels[0].textContent = "Preview canvas";
+        labels[1].textContent = "Open a mod file to start";
+      } else if (state === "assets") {
+        mode.textContent = "Asset preview";
+        labels[0].textContent = "Mod asset preview";
+        labels[1].textContent = "Read-only; no changes saved";
+      } else {
+        mode.textContent = "Sample HUD";
+        labels[0].textContent = "Sample HUD preview";
+        labels[1].textContent = "This mockup does not edit the mod";
+      }
+    };
+    setCanvasState("empty");
     selectElement("abilities");
   </script>
 </body>
 </html>
-
