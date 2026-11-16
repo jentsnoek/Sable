@@ -14,6 +14,8 @@ use std::{
     io::{BufReader, BufWriter},
     path::{Component, Path, PathBuf},
     process::Command,
+    sync::Mutex,
+    time::UNIX_EPOCH,
 };
 
 #[derive(Debug, Serialize)]
@@ -214,6 +216,117 @@ fn import_mod_package_blocking(
         texture_count: textures.len(),
         editable_texture_count: textures.iter().filter(|entry| entry.editable).count(),
         warnings,
+    })
+}
+
+
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TexturePreviewResult {
+    png_bytes: Vec<u8>,
+    texture_path: String,
+}
+
+static PREVIEW_IMPORT_LOCK: Mutex<()> = Mutex::new(());
+
+#[tauri::command]
+pub async fn preview_package_texture(
+    source_path: String,
+    entry_path: String,
+) -> Result<TexturePreviewResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        preview_package_texture_blocking(source_path, entry_path)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn preview_package_texture_blocking(
+    source_path: String,
+    entry_path: String,
+) -> Result<TexturePreviewResult, String> {
+    let _guard = PREVIEW_IMPORT_LOCK
+        .lock()
+        .map_err(|_| "The texture preview cache is unavailable.".to_owned())?;
+    let source = PathBuf::from(source_path);
+    if !source.is_file() {
+        return Err("The selected mod package could not be found.".to_owned());
+    }
+
+    let metadata = fs::metadata(&source).map_err(|error| error.to_string())?;
+    let canonical = source.canonicalize().map_err(|error| error.to_string())?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos().to_string())
+        .unwrap_or_else(|| "unknown".to_owned());
+    let cache_key = sha256(
+        format!("{}:{}:{}", canonical.to_string_lossy(), metadata.len(), modified).as_bytes(),
+    );
+    let cache_parent = std::env::temp_dir()
+        .join("Sable")
+        .join("TexturePreviewCache")
+        .join(cache_key);
+    fs::create_dir_all(&cache_parent).map_err(|error| error.to_string())?;
+
+    let source_stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("League mod");
+    let expected_workspace =
+        cache_parent.join(format!("{} - Sable workspace", safe_component(source_stem)));
+    let workspace = if expected_workspace.join("SABLE-workspace.json").is_file() {
+        expected_workspace
+    } else {
+        let result = import_mod_package_blocking(
+            source.to_string_lossy().into_owned(),
+            cache_parent.to_string_lossy().into_owned(),
+        )?;
+        PathBuf::from(result.workspace_path)
+    };
+
+    let manifest: TextureManifest = serde_json::from_slice(
+        &fs::read(workspace.join("SABLE-textures.json"))
+            .map_err(|error| format!("Could not read the texture preview map: {error}"))?,
+    )
+    .map_err(|error| format!("The texture preview map is invalid: {error}"))?;
+
+    let requested = entry_path
+        .replace('\\', "/")
+        .replace(" / ", "/")
+        .trim_matches('/')
+        .to_ascii_lowercase();
+    let matching: Vec<&TextureEntry> = manifest
+        .textures
+        .iter()
+        .filter(|texture| {
+            let path = texture.project_path.replace('\\', "/").to_ascii_lowercase();
+            path == requested
+                || path.ends_with(&format!("/{requested}"))
+                || requested.ends_with(&format!("/{path}"))
+        })
+        .collect();
+    if matching.is_empty() {
+        return Err(format!(
+            "Sable imported the package but could not match this TEX file: {entry_path}"
+        ));
+    }
+    if matching.len() > 1 {
+        return Err(format!(
+            "More than one TEX file matches this path: {entry_path}"
+        ));
+    }
+
+    let texture = matching[0];
+    let png_path = safe_child(&workspace, &texture.png_path)?;
+    let png_bytes = fs::read(&png_path)
+        .map_err(|error| format!("Could not read the generated TEX preview: {error}"))?;
+    Ok(TexturePreviewResult {
+        png_bytes,
+        texture_path: texture.project_path.clone(),
     })
 }
 

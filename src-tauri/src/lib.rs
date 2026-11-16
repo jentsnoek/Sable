@@ -8,7 +8,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             workspace::import_mod_package,
             workspace::pack_mod_workspace,
-            workspace::open_sable_workspace
+            workspace::open_sable_workspace,
+            workspace::preview_package_texture
         ])
         .run(tauri::generate_context!())
         .expect("Sable failed to start");

@@ -289,7 +289,7 @@
             <div class="asset-guide" id="assetGuide">Files are grouped by what their paths suggest. Search by champion, HUD, map, or filename.</div>
             <div class="section-head"><span class="eyebrow" id="assetCount">Files in package</span><span class="tiny-action">On this device</span></div>
             <details class="meta-details"><summary>Package details</summary><div class="package-meta" id="packageMeta"><div class="asset-empty-list">Package details will appear here.</div></div></details>
-            <input class="asset-search" id="assetSearch" type="search" placeholder="Search champions, HUD, maps, files…" aria-label="Search package files">
+            <input class="asset-search" id="assetSearch" type="search" placeholder="Search champions, HUD, textures, maps, files…" aria-label="Search package files">
             <button class="btn quiet wad-back hidden" id="wadBack" type="button">Back to package files</button>
             <div class="asset-list" id="packageFiles"><div class="asset-empty-list">Package files will appear here.</div></div>
           </div>
@@ -841,8 +841,8 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "WAD entries may have hashed names. Sable groups those by detected file type; file names may need a game path hash list to resolve."
-        : "Use the group names as a guide. Paths can identify champions and HUD areas; unnamed WAD entries stay grouped by file type.";
+        ? "TEX files are marked TEX. Search .tex or open a WAD to inspect its contents; some WAD entries use hashed names."
+        : "TEX files are marked and their groups open automatically. Search .tex to find them.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
@@ -861,7 +861,11 @@
         const groupEntries = groups.get(groupName);
         if (!groupEntries?.length) continue;
         groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
-        const group = document.createElement("details"); group.className = "asset-group"; group.open = groupEntries.length <= 5;
+        const group = document.createElement("details"); group.className = "asset-group";
+        const containsTexture = groupEntries.some((entry) =>
+          fileExtension(entry.displayPath || entry.path) === ".tex" || entry.assetType === "Textures"
+        );
+        group.open = groupEntries.length <= 5 || containsTexture;
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -886,6 +890,28 @@
     const readPackageEntry = (entry, maxBytes = MAX_PREVIEW_BYTES) => loadedPackage.format === "modpkg" || entry.format === "modpkg"
       ? readModpkgChunk(loadedPackage.buffer, entry, maxBytes)
       : readZipEntry(loadedPackage.buffer, entry, maxBytes);
+    const showNativeTexturePreview = async (entry, request) => {
+      const message = document.getElementById("assetMessage");
+      const image = document.getElementById("assetImage");
+      message.textContent = "Preparing the native TEX preview…";
+      message.classList.remove("hidden");
+      const preview = await window.__TAURI__.core.invoke("preview_package_texture", {
+        sourcePath: loadedPackage.nativePath,
+        entryPath: entry.displayPath || entry.path
+      });
+      if (request !== previewRequest) return;
+      const png = new Uint8Array(preview.pngBytes);
+      currentAssetUrl = URL.createObjectURL(new Blob([png], { type: "image/png" }));
+      image.src = currentAssetUrl;
+      image.classList.remove("hidden");
+      message.classList.add("hidden");
+      await image.decode();
+      if (request !== previewRequest) return;
+      const dimensions = `${image.naturalWidth}×${image.naturalHeight}`;
+      document.getElementById("inspectTag").textContent = `TEX ${dimensions}`;
+      document.getElementById("selectedPath").textContent = `${image.naturalWidth} × ${image.naturalHeight} · native PNG preview · ${preview.texturePath}`;
+      document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${dimensions}`;
+    };
     const showTexturePreview = async (bytes, entry, request) => {
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
       message.textContent = "Decoding texture preview."; message.classList.remove("hidden");
@@ -915,6 +941,12 @@
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
       try {
+        if (isDesktopApp && loadedPackage?.nativePath && fileExtension(entry.path) === ".tex") {
+          await showNativeTexturePreview(entry, request);
+          if (request !== previewRequest) return;
+          setStatus("TEX preview ready");
+          return;
+        }
         if (entry.format === "wad-chunk") {
           if (!currentWadView) throw new Error("Go back to the package and open the WAD again.");
           message.textContent = `Opening ${entry.assetType.toLowerCase()} entry.`; message.classList.remove("hidden");
