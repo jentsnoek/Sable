@@ -208,6 +208,15 @@
     body { height: 100dvh; overflow: hidden; }
     .app { height: 100dvh; min-height: 0; overflow: hidden; }
     .topbar { height: 64px; flex-basis: 64px; gap: 16px; padding: 0 18px; }
+
+    .window-controls { display: none; align-items: center; gap: 2px; flex: 0 0 auto; margin-left: 3px; padding-left: 9px; border-left: 1px solid var(--line); }
+    .tauri-app .window-controls { display: flex; }
+    .window-control { display: grid; place-items: center; width: 38px; height: 34px; padding: 0; border: 0; border-radius: 7px; color: #bdb2bd; background: transparent; cursor: pointer; transition: background .14s ease, color .14s ease; }
+    .window-control:hover { color: var(--text); background: #302a31; }
+    .window-control svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .window-control.close:hover { color: #fff; background: #a94f68; }
+    [data-tauri-drag-region] { -webkit-app-region: drag; user-select: none; }
+    .window-control { -webkit-app-region: no-drag; }
     .brand { min-width: 0; flex: 0 0 auto; }
     .brand-logo-frame, .welcome-logo-frame { display: grid; place-items: center; border: 1px solid #bca6c7; border-radius: 10px; background: #e6d8ec; box-shadow: 0 5px 22px #0003; }
     .brand-logo-frame { width: 158px; height: 50px; padding: 2px 5px; }
@@ -258,11 +267,16 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand"><span class="brand-logo-frame"><img class="brand-logo" src="" alt=""></span><span class="brand-name">Sable</span><span class="brand-sub">MOD WORKSHOP</span></div>
-      <div class="top-spacer"></div>
-      <div class="status"><span class="dot"></span> <span id="statusText">Ready</span></div>
+      <div class="brand" data-tauri-drag-region><span class="brand-logo-frame"><img class="brand-logo" src="" alt=""></span><span class="brand-name">Sable</span><span class="brand-sub">MOD WORKSHOP</span></div>
+      <div class="top-spacer" data-tauri-drag-region></div>
+      <div class="status" data-tauri-drag-region><span class="dot"></span> <span id="statusText">Ready</span></div>
       <button class="btn quiet" id="openFile" type="button">Open mod</button>
       <button class="btn primary" id="unpackBtn" type="button" disabled title="Create an editable workspace in a folder you choose.">Unpack</button><button class="btn quiet" id="openFolderBtn" type="button" disabled title="Open the current workspace in File Explorer">Open folder</button><button class="btn primary repack-action" id="repackBtn" type="button" disabled title="Rebuild the current workspace as its original package type">Repack</button>
+      <div class="window-controls" aria-label="Window controls">
+        <button class="window-control" id="windowMinimize" type="button" title="Minimize" aria-label="Minimize window"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button class="window-control" id="windowMaximize" type="button" title="Maximize" aria-label="Maximize window"><svg viewBox="0 0 24 24" aria-hidden="true" id="windowMaximizeGlyph"><rect x="5.5" y="5.5" width="13" height="13" rx="1.5"/></svg></button>
+        <button class="window-control close" id="windowClose" type="button" title="Close" aria-label="Close window"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
       <input type="file" id="filePicker" accept=".fantome,.modpkg,.zip" hidden>
     </header>
 
@@ -1036,6 +1050,7 @@
     const safeFileSegment = (value) => String(value || "unnamed").replace(/[<>:"|?*\x00-\x1f]/g, "_").replace(/[. ]+$/g, "").slice(0, 120) || "unnamed";
     const safeRelativeSegments = (value) => String(value || "").replace(/\\/g, "/").split("/").filter((part) => part && part !== "." && part !== "..").map(safeFileSegment);
     const isDesktopApp = Boolean(window.__TAURI__?.dialog?.open && window.__TAURI__?.fs?.readFile);
+    document.documentElement.classList.toggle("tauri-app", isDesktopApp);
     const writeFolderFile = async (root, relativeSegments, content) => {
       if (root.kind === "tauri") {
         const cleanRoot = root.path.replace(/[\\/]+$/, "");
@@ -1453,6 +1468,37 @@
       labels[1].textContent = state === "empty" ? "Open a mod file to get started" : "Choose a file from the library";
     };
 
+
+    if (isDesktopApp && window.__TAURI__?.window?.getCurrentWindow) {
+      const appWindow = window.__TAURI__.window.getCurrentWindow();
+      const maximizeButton = document.getElementById("windowMaximize");
+      const syncMaximizeButton = async () => {
+        const maximized = await appWindow.isMaximized();
+        maximizeButton.title = maximized ? "Restore" : "Maximize";
+        maximizeButton.setAttribute("aria-label", maximized ? "Restore window" : "Maximize window");
+        document.getElementById("windowMaximizeGlyph").innerHTML = maximized
+          ? '<path d="M8 7h10v10"/><path d="M7 10H5v9h9v-2"/>'
+          : '<rect x="5.5" y="5.5" width="13" height="13" rx="1.5"/>';
+      };
+      document.getElementById("windowMinimize").addEventListener("click", () => {
+        appWindow.minimize().catch((error) => toast(error.message || "Could not minimize the window."));
+      });
+      maximizeButton.addEventListener("click", async () => {
+        try { await appWindow.toggleMaximize(); await syncMaximizeButton(); }
+        catch (error) { toast(error.message || "Could not maximize the window."); }
+      });
+      document.getElementById("windowClose").addEventListener("click", () => {
+        appWindow.close().catch((error) => toast(error.message || "Could not close the window."));
+      });
+      syncMaximizeButton().catch((error) => toast(error.message || "Window controls could not initialize."));
+      document.querySelectorAll("[data-tauri-drag-region]").forEach((region) => {
+        region.addEventListener("dblclick", async (event) => {
+          if (event.target.closest("button")) return;
+          try { await appWindow.toggleMaximize(); await syncMaximizeButton(); }
+          catch (error) { toast(error.message || "Could not maximize the window."); }
+        });
+      });
+    }
     setCanvasState("empty");
     selectElement("abilities");
     document.getElementById("selectedName").textContent = "No file selected";
