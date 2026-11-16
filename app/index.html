@@ -215,7 +215,6 @@
     .window-control:hover { color: var(--text); background: #302a31; }
     .window-control svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
     .window-control.close:hover { color: #fff; background: #a94f68; }
-    [data-tauri-drag-region] { -webkit-app-region: drag; user-select: none; }
     .window-control { -webkit-app-region: no-drag; }
     .brand { min-width: 0; flex: 0 0 auto; }
     .brand-logo-frame, .welcome-logo-frame { display: grid; place-items: center; border: 1px solid #bca6c7; border-radius: 10px; background: #e6d8ec; box-shadow: 0 5px 22px #0003; }
@@ -267,9 +266,9 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand" data-tauri-drag-region><span class="brand-logo-frame"><img class="brand-logo" src="" alt=""></span><span class="brand-name">Sable</span><span class="brand-sub">MOD WORKSHOP</span></div>
-      <div class="top-spacer" data-tauri-drag-region></div>
-      <div class="status" data-tauri-drag-region><span class="dot"></span> <span id="statusText">Ready</span></div>
+      <div class="brand"><span class="brand-logo-frame"><img class="brand-logo" src="" alt=""></span><span class="brand-name">Sable</span><span class="brand-sub">MOD WORKSHOP</span></div>
+      <div class="top-spacer"></div>
+      <div class="status"><span class="dot"></span> <span id="statusText">Ready</span></div>
       <button class="btn quiet" id="openFile" type="button">Open mod</button>
       <button class="btn primary" id="unpackBtn" type="button" disabled title="Create an editable workspace in a folder you choose.">Unpack</button><button class="btn quiet" id="openFolderBtn" type="button" disabled title="Open the current workspace in File Explorer">Open folder</button><button class="btn primary repack-action" id="repackBtn" type="button" disabled title="Rebuild the current workspace as its original package type">Repack</button>
       <div class="window-controls" aria-label="Window controls">
@@ -1491,12 +1490,16 @@
         appWindow.close().catch((error) => toast(error.message || "Could not close the window."));
       });
       syncMaximizeButton().catch((error) => toast(error.message || "Window controls could not initialize."));
-      document.querySelectorAll("[data-tauri-drag-region]").forEach((region) => {
-        region.addEventListener("dblclick", async (event) => {
-          if (event.target.closest("button")) return;
-          try { await appWindow.toggleMaximize(); await syncMaximizeButton(); }
-          catch (error) { toast(error.message || "Could not maximize the window."); }
-        });
+      const topbar = document.querySelector(".topbar");
+      const isInteractiveTitlebarTarget = (target) => Boolean(target.closest("button, input, select, a"));
+      topbar.addEventListener("mousedown", (event) => {
+        if (event.button !== 0 || isInteractiveTitlebarTarget(event.target)) return;
+        appWindow.startDragging().catch((error) => toast(error.message || "Could not move the window."));
+      });
+      topbar.addEventListener("dblclick", async (event) => {
+        if (isInteractiveTitlebarTarget(event.target)) return;
+        try { await appWindow.toggleMaximize(); await syncMaximizeButton(); }
+        catch (error) { toast(error.message || "Could not maximize the window."); }
       });
     }
     setCanvasState("empty");

@@ -55,6 +55,10 @@ struct TextureManifest {
     textures: Vec<TextureEntry>,
 }
 
+const WORKSPACE_MANIFEST_PATH: &str = "Sable data/workspace.json";
+const TEXTURE_MANIFEST_PATH: &str = "Sable data/textures.json";
+const LEGACY_WORKSPACE_MANIFEST_PATH: &str = "SABLE-workspace.json";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TextureEntry {
@@ -104,7 +108,7 @@ fn import_mod_package_blocking(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("League mod");
     let workspace = unique_directory(&parent, &format!("{} - Sable workspace", safe_component(source_stem)))?;
-    let project_dir = workspace.join("project");
+    let project_dir = workspace.join("Mod files");
     let source_file = File::open(&source).map_err(|error| format!("Could not open the package: {error}"))?;
 
     let project = if extension == "modpkg" {
@@ -127,7 +131,8 @@ fn import_mod_package_blocking(
         project.display_name.clone()
     };
 
-    let textures_dir = workspace.join("Textures");
+    let textures_dir = workspace.join("Edit PNGs");
+    fs::create_dir_all(&textures_dir).map_err(|error| error.to_string())?;
     let mut texture_files = Vec::new();
     collect_tex_files(&project_dir, &mut texture_files)
         .map_err(|error| format!("Could not scan imported textures: {error}"))?;
@@ -187,28 +192,28 @@ fn import_mod_package_blocking(
         schema_version: 1,
         display_name: display_name.clone(),
         source_format: extension.clone(),
-        project_dir: "project".to_owned(),
-        texture_manifest: "SABLE-textures.json".to_owned(),
+        project_dir: "Mod files".to_owned(),
+        texture_manifest: TEXTURE_MANIFEST_PATH.to_owned(),
     };
+    fs::create_dir_all(workspace.join("Sable data")).map_err(|error| error.to_string())?;
     fs::write(
-        workspace.join("SABLE-workspace.json"),
+        workspace.join(WORKSPACE_MANIFEST_PATH),
         serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
     fs::write(
-        workspace.join("SABLE-textures.json"),
+        workspace.join(TEXTURE_MANIFEST_PATH),
         serde_json::to_vec_pretty(&TextureManifest { textures: textures.clone() })
             .map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
 
     let readme = format!(
-        "# Sable workspace\n\nOriginal package: {} (.{})\n\n## Where to edit\n\n- project/ contains the imported mod project. You can edit its files in File Explorer.\n- Textures/ contains PNG previews that you can edit in an image editor.\n- Use Repack in Sable when you are ready. It rebuilds a new .{} package in Repacked/ and leaves the original download untouched.\n\nTexture PNGs are companions to the original .tex files. Sable only replaces a texture when its PNG changed. Formats that cannot be safely encoded are marked read-only and stay unchanged.\n",
+        "SABLE WORKSPACE\n\nSource package: {} (.{})\n\nEDIT THESE PNGS\n  Edit PNGs\\ contains PNG versions of supported TEX textures. Edit these in your image editor.\n\nMOD FILES\n  Mod files\\ contains the extracted package assets used by Sable. Keep this folder and its paths intact.\n\nSABLE DATA\n  Sable data\\ contains Sable's internal workspace and texture maps. Leave these files alone.\n\nWHEN YOU ARE DONE\n  Save your PNG edits, open Sable, then click Repack. Sable creates a separate package copy and leaves your download unchanged. Some texture formats remain read-only for safe repacking.\n",
         source.file_name().and_then(|name| name.to_str()).unwrap_or("mod package"),
-        extension,
         extension
     );
-    fs::write(workspace.join("SABLE-README.md"), readme).map_err(|error| error.to_string())?;
+    fs::write(workspace.join("START HERE.txt"), readme).map_err(|error| error.to_string())?;
 
     Ok(WorkspaceResult {
         workspace_path: workspace.to_string_lossy().into_owned(),
@@ -248,8 +253,10 @@ fn preview_package_texture_blocking(
     entry_path: String,
 ) -> Result<TexturePreviewResult, String> {
     let workspace = ensure_preview_workspace(&source_path)?;
+    let workspace_manifest = read_workspace_manifest(&workspace)?;
+    let texture_map_path = safe_child(&workspace, &workspace_manifest.texture_manifest)?;
     let manifest: TextureManifest = serde_json::from_slice(
-        &fs::read(workspace.join("SABLE-textures.json"))
+        &fs::read(texture_map_path)
             .map_err(|error| format!("Could not read the texture preview map: {error}"))?,
     )
     .map_err(|error| format!("The texture preview map is invalid: {error}"))?;
@@ -306,7 +313,8 @@ fn inspect_package_wad_textures_blocking(
     wad_path: String,
 ) -> Result<Vec<WadTextureEntry>, String> {
     let workspace = ensure_preview_workspace(&source_path)?;
-    let project_dir = workspace.join("project");
+    let workspace_manifest = read_workspace_manifest(&workspace)?;
+    let project_dir = safe_child(&workspace, &workspace_manifest.project_dir)?;
     let wad_file = find_wad_file(&project_dir, &wad_path)?;
     let mut wad = Wad::mount(
         File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
@@ -364,7 +372,7 @@ fn ensure_preview_workspace(source_path: &str) -> Result<PathBuf, String> {
         .unwrap_or("League mod");
     let expected_workspace =
         cache_parent.join(format!("{} - Sable workspace", safe_component(source_stem)));
-    if expected_workspace.join("SABLE-workspace.json").is_file() {
+    if workspace_manifest_path(&expected_workspace).is_file() {
         return Ok(expected_workspace);
     }
     let result = import_mod_package_blocking(
@@ -442,7 +450,8 @@ fn preview_wad_texture(
     let hash: WadHash = hash_text
         .parse()
         .map_err(|_| format!("This WAD texture has an invalid hash: {display_path}"))?;
-    let project_dir = workspace.join("project");
+    let workspace_manifest = read_workspace_manifest(workspace)?;
+    let project_dir = safe_child(workspace, &workspace_manifest.project_dir)?;
     let wad_file = find_wad_file(&project_dir, wad_relative)?;
     let mut wad = Wad::mount(
         File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
@@ -488,14 +497,7 @@ pub async fn pack_mod_workspace(workspace_path: String) -> Result<PackResult, St
 
 fn pack_mod_workspace_blocking(workspace_path: String) -> Result<PackResult, String> {
     let workspace = PathBuf::from(workspace_path);
-    let manifest_path = workspace.join("SABLE-workspace.json");
-    if !manifest_path.is_file() {
-        return Err("This folder is not a Sable workspace. Open the folder created by Unpack.".to_owned());
-    }
-    let manifest: WorkspaceManifest = serde_json::from_slice(
-        &fs::read(&manifest_path).map_err(|error| format!("Could not read the workspace file: {error}"))?,
-    )
-    .map_err(|error| format!("The workspace settings are invalid: {error}"))?;
+    let manifest = read_workspace_manifest(&workspace)?;
     if manifest.schema_version != 1 {
         return Err("This workspace was made by a newer Sable version.".to_owned());
     }
@@ -587,7 +589,7 @@ fn pack_mod_workspace_blocking(workspace_path: String) -> Result<PackResult, Str
 #[tauri::command]
 pub async fn open_sable_workspace(workspace_path: String) -> Result<(), String> {
     let path = PathBuf::from(workspace_path);
-    if !path.join("SABLE-workspace.json").is_file() {
+    if !workspace_manifest_path(&path).is_file() {
         return Err("Sable can only open folders created by Unpack.".to_owned());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -607,6 +609,27 @@ pub async fn open_sable_workspace(workspace_path: String) -> Result<(), String> 
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+
+fn workspace_manifest_path(workspace: &Path) -> PathBuf {
+    let current = workspace.join(WORKSPACE_MANIFEST_PATH);
+    if current.is_file() {
+        current
+    } else {
+        workspace.join(LEGACY_WORKSPACE_MANIFEST_PATH)
+    }
+}
+
+fn read_workspace_manifest(workspace: &Path) -> Result<WorkspaceManifest, String> {
+    let manifest_path = workspace_manifest_path(workspace);
+    if !manifest_path.is_file() {
+        return Err("This folder is not a Sable workspace. Open the folder created by Unpack.".to_owned());
+    }
+    serde_json::from_slice(
+        &fs::read(&manifest_path).map_err(|error| format!("Could not read the workspace file: {error}"))?,
+    )
+    .map_err(|error| format!("The workspace settings are invalid: {error}"))
 }
 
 fn is_encodable(format_id: u8) -> bool {
