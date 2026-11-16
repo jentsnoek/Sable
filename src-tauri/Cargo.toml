@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-ltk_mod_project = { version = "0.18", features = ["modpkg", "fantome"] }
+ltk_mod_project = { git = "https://github.com/LeagueToolkit/league-mod", rev = "69f6583480e2da7f8d6bebee22ce53dc988ebeba", features = ["modpkg", "fantome"] }
 ltk_texture = { version = "0.6.7", features = ["intel-tex"] }
 image = { version = "0.25.2", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
