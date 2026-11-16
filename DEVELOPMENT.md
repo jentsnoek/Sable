@@ -7,18 +7,23 @@ Sable should make it easier to inspect and customize League of Legends HUD and c
 ## Current implementation
 
 - `index.html` is a single-page browser prototype. It opens `.fantome` and `.modpkg` files locally.
-- The asset list groups package entries by type and, for layered `.modpkg` files, by target WAD.
+- The asset list groups package entries by likely purpose, type, and target WAD. The "Likely HUD" label is a filename-based guess, not a verified edit target.
 - Supported version 3 WAD archives can be indexed. Their internal paths are hashes, so entries are shown by hash when a name cannot be resolved.
 - TEX previews support BC1, BC3, and BGRA8. Zstandard decoding uses native browser support or loads the pinned `fzstd` fallback from jsDelivr when needed.
 - Editing and export are still disabled. The HUD controls only change the mock preview.
 
+## Current UI behavior
+
+- Before a mod is opened, the preview shows a clear prompt to choose a `.fantome` or `.modpkg` file instead of a decorative map.
+- Package file groups start collapsed, with likely HUD textures called out from readable filenames. Hashed WAD entries are grouped by detected file type because their original paths are unavailable.
+- The sample HUD controls are labeled as a mockup and do not change files.
+
 ## Next priorities
 
-1. Replace the unused Summoner's Rift screen shown before a mod is opened with a clear empty state.
-2. Make the asset browser easier to understand: group assets by target and purpose, and avoid dropping users into a long list of raw files.
-3. Improve previews for HUD textures and skin assets. Add editing controls only when the underlying asset format supports them.
-4. Export a new mod while preserving metadata, layers, and untouched files.
-5. Package the finished Windows app as an executable and installer after the core workflow is stable.
+1. Improve asset identification and previews using the supplied HUD and skin samples, especially for hashed WAD contents.
+2. Add real editing controls only for file formats that can be safely changed and preserved.
+3. Export a new mod while preserving metadata, layers, and untouched files.
+4. Package the finished Windows app as an executable and installer after the core workflow is stable.
 
 ## Working constraints
 
