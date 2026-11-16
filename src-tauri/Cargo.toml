@@ -17,6 +17,12 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+ltk_mod_project = { version = "0.18", features = ["modpkg", "fantome"] }
+ltk_texture = { version = "0.6.7", features = ["intel-tex"] }
+image = { version = "0.25.2", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

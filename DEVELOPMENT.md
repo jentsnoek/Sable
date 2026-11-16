@@ -2,30 +2,35 @@
 
 ## Windows desktop app
 
-Sable uses Tauri 2 with the existing vanilla HTML, CSS, and JavaScript interface. The frontend is in app/ and is loaded directly by the Tauri shell. Rust currently starts the application and registers Tauri's dialog and filesystem plugins for native file selection and unpacking.
+Sable uses Tauri 2 with a vanilla HTML, CSS, and JavaScript interface. The frontend is in app/. Rust provides package import/export and TEX conversion using LeagueToolkit, alongside Tauri's native file dialogs and File Explorer handoff.
 
 ### Build a test executable
 
-Install the Rust stable toolchain, the Microsoft C++ Build Tools, and the WebView2 Runtime. From the repository root, install the Tauri command line tool and build:
+Install the Rust stable toolchain, Microsoft C++ Build Tools, and the WebView2 Runtime. From the repository root, install the Tauri CLI and build:
 
     cargo install tauri-cli --version "^2" --locked
     cargo tauri dev
 
-To build the standalone executable without producing an installer:
+To build a standalone executable without an installer:
 
     cargo tauri build --no-bundle
 
-The executable is written under src-tauri/target/release/. The GitHub Actions workflow builds and uploads it when changes are pushed to main, or when the workflow is started manually. This direct executable is a convenient early test build. A signed installer can be added later.
+The executable is written under src-tauri/target/release/. The GitHub Actions workflow builds and uploads it when app/ or src-tauri/ changes are pushed to main, or when started manually. The direct executable is for early testing; a signed installer can be added later.
+
+### Unpack and repack flow
+
+Sable imports .fantome and .modpkg packages into a LeagueToolkit mod project in project/. It decodes TEX files to PNG companions under Textures/ and stores a hash map so only changed PNG files are converted back. Repack uses the original package format and saves a new archive under Repacked/.
+
+The source package is selected through the native file dialog. The workspace parent is chosen by the user; the Rust commands read and write only those selected paths. WebView filesystem permissions remain restricted to paths selected through dialogs.
 
 ### Project structure
 
-- app/index.html: shared browser and desktop interface.
-- src-tauri/: Tauri configuration, capabilities, and Rust entry point.
+- app/index.html and app/theme.css: shared browser and desktop interface.
+- src-tauri/src/workspace.rs: native mod import, TEX conversion, repacking, and File Explorer opening.
+- src-tauri/capabilities/default.json: narrow Tauri permissions for selected paths.
 - .github/workflows/build-windows-exe.yml: Windows build and downloadable executable artifact.
-- index.html: small redirect to the app interface for GitHub Pages.
+- index.html: redirect to the browser interface for GitHub Pages.
 
-### Current limits and next steps
+### Format notes
 
-Sable can inspect and unpack supported package and WAD data. It does not yet edit binary assets or repack a mod. The next major technical step is to integrate LeagueToolkit through Rust for reliable package and WAD editing, then add safe round-trip export. Keep WAD files and package originals unchanged unless the user explicitly exports a modified copy.
-
-The browser interface includes a pinned fzstd fallback from jsDelivr for Zstandard chunks that WebView2 cannot decode natively. The app currently needs an internet connection to fetch that fallback when required.
+The LeagueToolkit texture crate decodes all shipped TEX formats. Repacking edits is enabled for BC1, BC3, BC7, and BGRA8; ETC, BC5, and float texture previews remain unchanged during export. Block-compressed edited textures must use dimensions divisible by four for game-ready output. See the upstream [texture documentation](https://github.com/LeagueToolkit/league-toolkit/tree/main/crates/ltk_texture) and [mod project documentation](https://github.com/LeagueToolkit/league-mod/tree/main/crates/ltk_mod_project).

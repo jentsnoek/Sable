@@ -1,28 +1,28 @@
 # Sable
 
-Sable is a desktop workspace for exploring League of Legends .fantome and .modpkg mods, including HUDs and champion skins.
+Sable is a Windows desktop workspace for opening League of Legends .fantome and .modpkg mods, including HUDs and champion skins.
 
 ## Try the Windows app
 
-The first build is a direct Windows executable so you can try Sable without installing a development environment.
-
 1. Open the repository's Actions tab.
-2. Select Build Windows executable and open its latest successful run.
-3. Download the Sable-windows-exe artifact, unzip it, and launch sable.exe.
+2. Open the latest successful **Build Windows executable** run.
+3. Download and unzip the **Sable-windows-exe** artifact, then launch sable.exe.
 
 The app uses the WebView2 runtime available on most current Windows installations. This early build is unsigned and distributed as a workflow artifact.
 
-## What works today
+## What works
 
-- Open .fantome and .modpkg files with a native file picker.
-- Browse files grouped by HUD and interface, champion, map, audio, metadata, and other assets when their paths contain enough information.
-- Preview supported images and League .tex textures.
-- Open supported WAD archives and browse their internal entries by detected file type.
-- Unpack a working copy to a folder you choose. Package files are preserved and readable WAD entries are organized under wad-contents/.
-- Keep the downloaded source package untouched.
+- Open and browse .fantome and .modpkg packages.
+- Browse package contents by file type and detected paths.
+- Unpack a package into a League Toolkit project you can edit in File Explorer.
+- Convert TEX textures into PNG previews in a separate Textures folder.
+- Repack the workspace into the same package type it came from. Sable creates a new file under Repacked/ and leaves the original download untouched.
+- Open the workspace in File Explorer directly from Sable.
 
-Sable is still read-only. The unpacked files are for inspection and manual editing; Sable cannot rebuild edits into a working .fantome or .modpkg yet. WAD entries without a resolved game path keep their hash as the filename. Some compressed, encrypted, or oversized entries are reported as skipped.
+Texture PNGs are companions to the original TEX files. Only changed PNGs are converted back during repacking. Sable can re-encode BC1, BC3, BC7, and BGRA8 textures; formats that cannot be safely encoded remain unchanged. Block-compressed textures must have width and height divisible by four when edited.
 
-The browser version remains available from app/index.html and keeps a browser file picker fallback. When Zstandard is unavailable, Sable can load the pinned fzstd decoder from jsDelivr when needed.
+Sable uses the LeagueToolkit project and texture crates for package import/export and TEX decoding/encoding: [league-mod](https://github.com/LeagueToolkit/league-mod) and [league-toolkit](https://github.com/LeagueToolkit/league-toolkit).
+
+The browser interface remains available from app/index.html for package browsing and preview. Full PNG conversion, File Explorer workspaces, and repacking require the Windows desktop app.
 
 This is an unofficial community project and is not affiliated with or endorsed by Riot Games.

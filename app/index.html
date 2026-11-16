@@ -253,19 +253,20 @@
     @media (max-width: 650px) { body, .app { height: auto; min-height: 100dvh; overflow: auto; }.topbar { position: sticky; top: 0; z-index: 30; }.layout { display: flex; height: auto; min-height: calc(100dvh - 64px); overflow: visible; flex-direction: column; }.sidebar { height: 54vh; min-height: 300px; max-height: 68vh; border-right: 0; border-bottom: 1px solid var(--line); }.side-top { padding: 12px; }.side-content { padding: 8px 10px 10px; }.workspace { height: 62vh; min-height: 390px; }.toolbar { height: 46px; flex-basis: 46px; padding: 0 10px; }.canvas-wrap { padding: 14px 10px; }.inspector { display: none; }.side-bottom { display: none; }.brand-logo-frame { width: 135px; height: 44px; }.topbar .status { display: none; }.topbar .quiet { display: inline-flex; }.topbar .btn { padding: 9px 10px; font-size: 10px; } }
 
   </style>
-</head>
+<link rel="stylesheet" href="theme.css">
+  </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand"><span class="brand-logo-frame"><img class="brand-logo" src="" alt="Sable"></span></div>
+      <div class="brand"><span class="brand-logo-frame"><img class="brand-logo" src="" alt=""></span><span class="brand-name">Sable</span><span class="brand-sub">MOD WORKSHOP</span></div>
       <div class="top-spacer"></div>
       <div class="status"><span class="dot"></span> <span id="statusText">Ready</span></div>
       <button class="btn quiet" id="openFile" type="button">Open mod</button>
-      <button class="btn primary" id="unpackBtn" type="button" disabled title="Save an organized working copy to a folder you choose.">Unpack to folder <span>↗</span></button>
+      <button class="btn primary" id="unpackBtn" type="button" disabled title="Create an editable workspace in a folder you choose.">Unpack</button><button class="btn quiet" id="openFolderBtn" type="button" disabled title="Open the current workspace in File Explorer">Open folder</button><button class="btn primary repack-action" id="repackBtn" type="button" disabled title="Rebuild the current workspace as its original package type">Repack</button>
       <input type="file" id="filePicker" accept=".fantome,.modpkg,.zip" hidden>
     </header>
 
-    <main class="layout">
+    <main class="layout"><nav class="nav-rail" aria-label="Sable navigation"><div class="rail-top-mark" aria-hidden="true">S</div><button class="rail-link" id="railOpen" type="button" title="Open a mod" aria-label="Open a mod"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5v9a.5.5 0 0 1-.5.5h-5v-6h-5v6h-5a.5.5 0 0 1-.5-.5z"/></svg></button><button class="rail-link active" id="railFiles" type="button" title="Package files" aria-label="Package files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 12h8M8 15h5"/></svg></button><button class="rail-link" id="railUnpack" type="button" title="Unpack to workspace" aria-label="Unpack to workspace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button><div class="rail-spacer"></div><button class="rail-link" id="railSettings" type="button" title="About Sable" aria-label="About Sable"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.1h-2.6v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H6.4v-2.6h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.1H15v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1V14h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></nav>
       <aside class="sidebar">
         <div class="side-top">
           <div class="eyebrow">Current package</div>
@@ -319,7 +320,7 @@
           <div class="control-group"><div class="check-row"><span>Show this element</span><button class="mini-switch" id="visibilitySwitch" aria-label="Toggle visibility"></button></div></div>
           <div class="tip"><strong>Safe editing:</strong> your original download should stay untouched. Export will make a new copy with your changes.</div>
           </div>
-          <div class="tip hidden" id="assetReadOnly"><strong>Read-only preview.</strong> File editing and repacking are planned for a later version.</div>
+          <div class="tip hidden" id="assetReadOnly"><strong>Preview only.</strong> Unpack to edit the project files or PNG companions, then use Repack to rebuild the mod.</div>
         </div>
       </aside>
     </main>
@@ -332,6 +333,7 @@
     let toastTimer;
     let zoom = 100;
     let loadedPackage = null;
+    let activeWorkspacePath = localStorage.getItem("sable.workspacePath") || null;
     let currentWadView = null;
     let currentAssetUrl = null;
     let previewRequest = 0;
@@ -1030,6 +1032,28 @@
     };
     const unpackLoadedPackage = async () => {
       if (!loadedPackage) return;
+      if (isDesktopApp && loadedPackage.nativePath) {
+        let parentPath;
+        try {
+          parentPath = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+          if (!parentPath) return;
+          document.getElementById("unpackBtn").disabled = true;
+          setStatus("Importing project and converting textures…");
+          const result = await window.__TAURI__.core.invoke("import_mod_package", { sourcePath: loadedPackage.nativePath, parentPath: parentPath });
+          activeWorkspacePath = result.workspacePath;
+          localStorage.setItem("sable.workspacePath", activeWorkspacePath);
+          document.getElementById("openFolderBtn").disabled = false;
+          document.getElementById("repackBtn").disabled = false;
+          document.getElementById("fileDesc").textContent = result.textureCount + " TEX textures · " + result.editableTextureCount + " editable as PNG";
+          setStatus("Workspace ready · " + result.sourceFormat.toUpperCase());
+          toast("Created workspace with " + result.textureCount + " PNG texture previews.");
+          try { await window.__TAURI__.core.invoke("open_sable_workspace", { workspacePath: activeWorkspacePath }); }
+          catch (openError) { toast(openError.message || "Workspace created; use Open folder to view it."); }
+        } catch (error) {
+          if (error && error.name !== "AbortError") { setStatus("Could not unpack package"); toast(error.message || "Could not create the Sable workspace."); }
+        } finally { document.getElementById("unpackBtn").disabled = !loadedPackage; }
+        return;
+      }
       let parentHandle;
       try {
         if (isDesktopApp) {
@@ -1161,7 +1185,11 @@
         currentAssetUrl = null;
         currentWadView = null;
         document.getElementById("wadBack").classList.add("hidden");
-        loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata, format, layers: archive.layers || [] };
+        loadedPackage = { file, buffer: archive.buffer, entries: archive.entries, metadata, format, layers: archive.layers || [], nativePath: file.nativePath || null };
+        activeWorkspacePath = null;
+        localStorage.removeItem("sable.workspacePath");
+        document.getElementById("openFolderBtn").disabled = true;
+        document.getElementById("repackBtn").disabled = true;
         document.getElementById("gamePreview").classList.remove("no-package");
         setCanvasState("assets");
         const displayName = metadata.display_name || metadata.name || metadata.Name || file.name;
@@ -1291,11 +1319,38 @@
         const bytes = await window.__TAURI__.fs.readFile(selected);
         const name = selected.split(/[\\/]/).pop() || "mod-file";
         const file = new File([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], name, { type: "application/octet-stream" });
+        file.nativePath = selected;
         await openModFile(file);
       } catch (error) { toast(error.message || "Could not open that file."); }
     };
     document.getElementById("openFile").addEventListener("click", chooseModFile);
     document.getElementById("unpackBtn").addEventListener("click", () => unpackLoadedPackage());
+    const openWorkspaceFolder = async () => {
+      if (!activeWorkspacePath) return;
+      try { await window.__TAURI__.core.invoke("open_sable_workspace", { workspacePath: activeWorkspacePath }); }
+      catch (error) { toast(error.message || "Could not open this workspace folder."); }
+    };
+    const repackWorkspace = async () => {
+      if (!activeWorkspacePath) return;
+      const button = document.getElementById("repackBtn");
+      button.disabled = true;
+      setStatus("Rebuilding mod package…");
+      try {
+        const result = await window.__TAURI__.core.invoke("pack_mod_workspace", { workspacePath: activeWorkspacePath });
+        setStatus("Repacked " + result.sourceFormat.toUpperCase() + " · " + result.textureEdits + " texture edits");
+        document.getElementById("selectedPath").textContent = result.outputPath;
+        toast("Created " + result.outputPath.split(/[\\/]/).pop());
+        if (result.readOnlyEditsSkipped) toast(result.readOnlyEditsSkipped + " read-only texture edit(s) were skipped.");
+        await openWorkspaceFolder();
+      } catch (error) { setStatus("Could not repack workspace"); toast(error.message || "Could not rebuild this package."); }
+      finally { button.disabled = !activeWorkspacePath; }
+    };
+    document.getElementById("openFolderBtn").addEventListener("click", openWorkspaceFolder);
+    document.getElementById("repackBtn").addEventListener("click", repackWorkspace);
+    document.getElementById("railOpen").addEventListener("click", chooseModFile);
+    document.getElementById("railFiles").addEventListener("click", () => switchSidebarView("assets"));
+    document.getElementById("railUnpack").addEventListener("click", () => { if (loadedPackage) unpackLoadedPackage(); else toast("Open a .fantome or .modpkg file first."); });
+    document.getElementById("railSettings").addEventListener("click", () => toast("Sable · League mod workspace"));
     document.getElementById("emptyOpenFile").addEventListener("click", chooseModFile);
     document.getElementById("wadBack").addEventListener("click", returnToPackageFiles);
     document.getElementById("filePicker").addEventListener("change", (event) => {
@@ -1303,6 +1358,11 @@
       event.target.value = "";
       if (file) openModFile(file);
     });
+    if (activeWorkspacePath && isDesktopApp) {
+      document.getElementById("openFolderBtn").disabled = false;
+      document.getElementById("repackBtn").disabled = false;
+      setStatus("Workspace ready to repack");
+    }
     document.getElementById("assetSearch").addEventListener("input", (event) => {
       const query = event.target.value.trim().toLowerCase();
       const rows = [...document.querySelectorAll(".asset-row")];
