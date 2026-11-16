@@ -18,7 +18,7 @@ body{background:#07070a;color:var(--text)}
 .layout{height:calc(100vh - 58px);min-height:0;display:grid;grid-template-columns:64px 276px minmax(420px,1fr) 286px;overflow:hidden}
 .nav-rail{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 8px;background:#08080c;border-right:1px solid #201c27}
 .rail-top-mark{width:38px;height:38px;display:grid;place-items:center;margin-bottom:16px;border:1px solid #332544;border-radius:11px;background:#15101c;color:#d9a0f3;font-size:17px;font-weight:850;box-shadow:0 4px 18px #6c359322}
-.rail-link{width:42px;height:42px;display:grid;place-items:center;border:1px solid transparent;border-radius:10px;background:transparent;color:#958aa3;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.rail-logo{width:100%;height:100%;object-fit:cover;object-position:left center}.rail-link{width:42px;height:42px;display:grid;place-items:center;border:1px solid transparent;border-radius:10px;background:transparent;color:#958aa3;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
 .rail-link svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rail-link:hover,.rail-link.active{background:#1b1423;color:#ca88eb;border-color:#332342}
 .rail-spacer{flex:1}
@@ -30,7 +30,7 @@ body{background:#07070a;color:var(--text)}
 .file-icon{background:#21172b;color:#c887ef;border-color:#3a2948}
 .file-name{font-size:11px}
 .file-desc{font-size:10px;color:#91899b}
-.side-tabs{padding:0 12px;border-color:#211e28}
+.side-tabs{display:none;padding:0 12px;border-color:#211e28}
 .side-tab{font-size:10px}
 .side-tab.active{color:#ce8af0;border-bottom-color:#b67ce0}
 .side-content{padding:12px 10px}

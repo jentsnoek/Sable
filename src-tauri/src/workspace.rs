@@ -52,7 +52,7 @@ struct TextureManifest {
     textures: Vec<TextureEntry>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TextureEntry {
     project_path: String,
