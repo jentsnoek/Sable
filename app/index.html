@@ -955,6 +955,23 @@
         return false;
       }
     };
+    const fitAssetPreviewImage = (image) => {
+      const canvas = document.getElementById("gamePreview");
+      if (!canvas || !image.naturalWidth || !image.naturalHeight) return;
+      const bounds = canvas.getBoundingClientRect();
+      const maxWidth = Math.max(1, bounds.width * 0.78);
+      const maxHeight = Math.max(1, bounds.height * 0.72);
+      const frameScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+      const maxUpscale = Math.min(8, 560 / Math.max(image.naturalWidth, image.naturalHeight));
+      const scale = Math.min(frameScale, Math.max(1, maxUpscale));
+      image.style.width = `${Math.max(1, Math.round(image.naturalWidth * scale))}px`;
+      image.style.height = `${Math.max(1, Math.round(image.naturalHeight * scale))}px`;
+    };
+    window.addEventListener("resize", () => {
+      const image = document.getElementById("assetImage");
+      if (image && !image.classList.contains("hidden")) fitAssetPreviewImage(image);
+    }, { passive: true });
+
     const showNativeTexturePreview = async (entry, request) => {
       const message = document.getElementById("assetMessage");
       const image = document.getElementById("assetImage");
@@ -974,6 +991,7 @@
       if (request !== previewRequest) return;
       await repairTransparentTexturePreview(image);
       if (request !== previewRequest) return;
+      fitAssetPreviewImage(image);
       const dimensions = `${image.naturalWidth}×${image.naturalHeight}`;
       document.getElementById("inspectTag").textContent = `TEX ${dimensions}`;
       document.getElementById("selectedPath").textContent = `${image.naturalWidth} × ${image.naturalHeight} · native PNG preview · ${preview.texturePath}`;
@@ -993,6 +1011,7 @@
       if (request !== previewRequest) return;
       await repairTransparentTexturePreview(image);
       if (request !== previewRequest) return;
+      fitAssetPreviewImage(image);
       document.getElementById("inspectTag").textContent = `TEX ${preview.width}×${preview.height}`;
       document.getElementById("selectedPath").textContent = `${preview.width} × ${preview.height} · format ${preview.format} · ${preview.mipCount} mip${preview.mipCount === 1 ? "" : "s"} · ${entry.displayPath || entry.path}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${preview.width}×${preview.height}`;
