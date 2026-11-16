@@ -1033,7 +1033,7 @@
       let parentHandle;
       try {
         if (isDesktopApp) {
-          const selected = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+          const selected = await window.__TAURI__.dialog.open({ directory: true, multiple: false, recursive: true });
           if (!selected) return;
           parentHandle = { kind: "tauri", path: selected };
         } else if (typeof window.showDirectoryPicker === "function") {
