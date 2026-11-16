@@ -1,0 +1,38 @@
+name: Build Windows executable
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "src-tauri/**"
+      - ".github/workflows/build-windows-exe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build executable without installer
+        run: cargo tauri build --no-bundle
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sable-windows-exe
+          path: src-tauri/target/release/sable.exe
+          if-no-files-found: error
+          retention-days: 30
