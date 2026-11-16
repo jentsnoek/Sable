@@ -519,7 +519,29 @@
       if (bytes[0] === 0x89 && magic.slice(1, 4) === "PNG") return "Images";
       return "Other WAD entries";
     };
-    const scanWadEntries = async (bytes, wad, request) => {
+    const scanWadEntries = async (bytes, wad, request, wadPath) => {
+      if (isDesktopApp && loadedPackage?.nativePath) {
+        setStatus("Finding TEX files in the WAD…");
+        const textures = await window.__TAURI__.core.invoke("inspect_package_wad_textures", {
+          sourcePath: loadedPackage.nativePath,
+          wadPath
+        });
+        if (request !== previewRequest) return false;
+        const byHash = new Map(textures.map((item) => [String(item.hash).toLowerCase(), item]));
+        wad.entries.forEach((entry) => {
+          const texture = byHash.get(entry.hash.toLowerCase());
+          if (texture) {
+            const texturePath = `0x${entry.hash}.tex`;
+            entry.assetType = "Textures";
+            entry.path = texturePath;
+            entry.displayPath = `${wadPath} / ${texturePath}`;
+            entry.wad = wadPath;
+          } else {
+            entry.assetType = "Other WAD entries";
+          }
+        });
+        return true;
+      }
       const canReadZstd = (() => { try { new DecompressionStream("zstd"); return true; } catch { return false; } })();
       if (!canReadZstd && wad.entries.some((entry) => entry.compression === 3)) {
         wad.entries.forEach((entry) => { entry.assetType = "Unclassified WAD entries"; });
@@ -941,7 +963,7 @@
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
       try {
-        if (isDesktopApp && loadedPackage?.nativePath && fileExtension(entry.path) === ".tex") {
+        if (isDesktopApp && loadedPackage?.nativePath && (fileExtension(entry.path) === ".tex" || (entry.format === "wad-chunk" && entry.assetType === "Textures"))) {
           await showNativeTexturePreview(entry, request);
           if (request !== previewRequest) return;
           setStatus("TEX preview ready");
@@ -970,7 +992,7 @@
           if (request !== previewRequest) return;
           const wad = parseWadIndex(bytes, displayPath);
           currentWadView = { sourceEntry: entry, bytes, entries: wad.entries, version: wad.version };
-          const classified = await scanWadEntries(bytes, wad, request);
+          const classified = await scanWadEntries(bytes, wad, request, entry.path);
           if (request !== previewRequest) return;
           document.getElementById("wadBack").classList.remove("hidden");
           document.getElementById("assetSearch").value = "";

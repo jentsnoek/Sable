@@ -7,11 +7,12 @@ use ltk_texture::{
     tex::{EncodeFormat, EncodeOptions, Format, MipmapFilter},
     Tex,
 };
+use ltk_wad::{Wad, WadHash};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
-    io::{BufReader, BufWriter},
+    io::{BufReader, BufWriter, Cursor},
     path::{Component, Path, PathBuf},
     process::Command,
     sync::Mutex,
@@ -246,6 +247,91 @@ fn preview_package_texture_blocking(
     source_path: String,
     entry_path: String,
 ) -> Result<TexturePreviewResult, String> {
+    let workspace = ensure_preview_workspace(&source_path)?;
+    let manifest: TextureManifest = serde_json::from_slice(
+        &fs::read(workspace.join("SABLE-textures.json"))
+            .map_err(|error| format!("Could not read the texture preview map: {error}"))?,
+    )
+    .map_err(|error| format!("The texture preview map is invalid: {error}"))?;
+
+    let requested = normalize_package_path(&entry_path);
+    let matching: Vec<&TextureEntry> = manifest
+        .textures
+        .iter()
+        .filter(|texture| {
+            let path = normalize_package_path(&texture.project_path);
+            path == requested
+                || path.ends_with(&format!("/{requested}"))
+                || requested.ends_with(&format!("/{path}"))
+        })
+        .collect();
+    if matching.len() == 1 {
+        let texture = matching[0];
+        let png_path = safe_child(&workspace, &texture.png_path)?;
+        let png_bytes = fs::read(&png_path)
+            .map_err(|error| format!("Could not read the generated TEX preview: {error}"))?;
+        return Ok(TexturePreviewResult {
+            png_bytes,
+            texture_path: texture.project_path.clone(),
+        });
+    }
+    if matching.len() > 1 {
+        return Err(format!("More than one TEX file matches this path: {entry_path}"));
+    }
+
+    preview_wad_texture(&workspace, &requested, &entry_path)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WadTextureEntry {
+    hash: String,
+    size: usize,
+}
+
+#[tauri::command]
+pub async fn inspect_package_wad_textures(
+    source_path: String,
+    wad_path: String,
+) -> Result<Vec<WadTextureEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        inspect_package_wad_textures_blocking(source_path, wad_path)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn inspect_package_wad_textures_blocking(
+    source_path: String,
+    wad_path: String,
+) -> Result<Vec<WadTextureEntry>, String> {
+    let workspace = ensure_preview_workspace(&source_path)?;
+    let project_dir = workspace.join("project");
+    let wad_file = find_wad_file(&project_dir, &wad_path)?;
+    let mut wad = Wad::mount(
+        File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
+    )
+    .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+
+    let chunks: Vec<_> = wad.chunks().iter().copied().collect();
+    let mut textures = Vec::new();
+    for chunk in chunks {
+        if chunk.uncompressed_size() > 256 * 1024 * 1024 {
+            continue;
+        }
+        if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
+            if bytes.starts_with(b"TEX\0") {
+                textures.push(WadTextureEntry {
+                    hash: format!("{:016x}", chunk.path_hash()),
+                    size: bytes.len(),
+                });
+            }
+        }
+    }
+    Ok(textures)
+}
+
+fn ensure_preview_workspace(source_path: &str) -> Result<PathBuf, String> {
     let _guard = PREVIEW_IMPORT_LOCK
         .lock()
         .map_err(|_| "The texture preview cache is unavailable.".to_owned())?;
@@ -278,55 +364,118 @@ fn preview_package_texture_blocking(
         .unwrap_or("League mod");
     let expected_workspace =
         cache_parent.join(format!("{} - Sable workspace", safe_component(source_stem)));
-    let workspace = if expected_workspace.join("SABLE-workspace.json").is_file() {
-        expected_workspace
-    } else {
-        let result = import_mod_package_blocking(
-            source.to_string_lossy().into_owned(),
-            cache_parent.to_string_lossy().into_owned(),
-        )?;
-        PathBuf::from(result.workspace_path)
-    };
+    if expected_workspace.join("SABLE-workspace.json").is_file() {
+        return Ok(expected_workspace);
+    }
+    let result = import_mod_package_blocking(
+        source.to_string_lossy().into_owned(),
+        cache_parent.to_string_lossy().into_owned(),
+    )?;
+    Ok(PathBuf::from(result.workspace_path))
+}
 
-    let manifest: TextureManifest = serde_json::from_slice(
-        &fs::read(workspace.join("SABLE-textures.json"))
-            .map_err(|error| format!("Could not read the texture preview map: {error}"))?,
-    )
-    .map_err(|error| format!("The texture preview map is invalid: {error}"))?;
-
-    let requested = entry_path
-        .replace('\\', "/")
+fn normalize_package_path(path: &str) -> String {
+    path.replace('\\', "/")
         .replace(" / ", "/")
         .trim_matches('/')
-        .to_ascii_lowercase();
-    let matching: Vec<&TextureEntry> = manifest
-        .textures
-        .iter()
-        .filter(|texture| {
-            let path = texture.project_path.replace('\\', "/").to_ascii_lowercase();
-            path == requested
-                || path.ends_with(&format!("/{requested}"))
-                || requested.ends_with(&format!("/{path}"))
-        })
-        .collect();
-    if matching.is_empty() {
-        return Err(format!(
-            "Sable imported the package but could not match this TEX file: {entry_path}"
-        ));
-    }
-    if matching.len() > 1 {
-        return Err(format!(
-            "More than one TEX file matches this path: {entry_path}"
-        ));
+        .to_ascii_lowercase()
+}
+
+fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, String> {
+    let relative = normalize_package_path(requested_path);
+    if let Ok(candidate) = safe_child(project_dir, &relative) {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
     }
 
-    let texture = matching[0];
-    let png_path = safe_child(&workspace, &texture.png_path)?;
-    let png_bytes = fs::read(&png_path)
-        .map_err(|error| format!("Could not read the generated TEX preview: {error}"))?;
+    let basename = Path::new(&relative)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("Invalid WAD path: {requested_path}"))?;
+    let mut matches = Vec::new();
+    collect_files_named(project_dir, basename, &mut matches)
+        .map_err(|error| format!("Could not search imported WAD files: {error}"))?;
+    match matches.len() {
+        0 => Err(format!("Could not find WAD archive {requested_path} in the imported project.")),
+        1 => Ok(matches.remove(0)),
+        _ => {
+            let suffix = format!("/{}", relative);
+            if let Some(exact) = matches
+                .iter()
+                .find(|path| path.to_string_lossy().replace('\\', "/").to_ascii_lowercase().ends_with(&suffix))
+            {
+                Ok(exact.clone())
+            } else {
+                Err(format!("More than one imported WAD matches {requested_path}."))
+            }
+        }
+    }
+}
+
+fn collect_files_named(root: &Path, filename: &str, found: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_files_named(&path, filename, found)?;
+        } else if file_type.is_file()
+            && entry.file_name().to_string_lossy().eq_ignore_ascii_case(filename)
+        {
+            found.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn preview_wad_texture(
+    workspace: &Path,
+    requested: &str,
+    display_path: &str,
+) -> Result<TexturePreviewResult, String> {
+    let (wad_relative, texture_name) = requested
+        .rsplit_once('/')
+        .ok_or_else(|| format!("Sable could not locate this TEX texture: {display_path}"))?;
+    let hash_name = texture_name.strip_suffix(".tex").unwrap_or(texture_name);
+    let hash_text = hash_name.strip_prefix("0x").unwrap_or(hash_name);
+    let hash: WadHash = hash_text
+        .parse()
+        .map_err(|_| format!("This WAD texture has an invalid hash: {display_path}"))?;
+    let project_dir = workspace.join("project");
+    let wad_file = find_wad_file(&project_dir, wad_relative)?;
+    let mut wad = Wad::mount(
+        File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
+    )
+    .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+    let chunk = wad
+        .chunks()
+        .get(hash)
+        .copied()
+        .ok_or_else(|| format!("The WAD no longer contains this texture: {display_path}"))?;
+    let tex_bytes = wad
+        .load_chunk_decompressed(&chunk)
+        .map_err(|error| format!("Could not decompress this WAD texture: {error}"))?;
+    if !tex_bytes.starts_with(b"TEX\0") {
+        return Err(format!("This WAD entry is not a TEX texture: {display_path}"));
+    }
+
+    let mut reader = BufReader::new(Cursor::new(tex_bytes.as_ref()));
+    let texture = Tex::from_reader(&mut reader)
+        .map_err(|error| format!("Could not read WAD texture: {error}"))?;
+    let rgba = texture
+        .decode_mipmap(0)
+        .map_err(|error| format!("Could not decode WAD texture: {error}"))?
+        .into_rgba_image()
+        .map_err(|error| format!("Could not convert WAD texture: {error}"))?;
+    let mut output = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(rgba)
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not encode WAD texture preview: {error}"))?;
+
     Ok(TexturePreviewResult {
-        png_bytes,
-        texture_path: texture.project_path.clone(),
+        png_bytes: output.into_inner(),
+        texture_path: display_path.to_owned(),
     })
 }
 

@@ -19,6 +19,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 ltk_mod_project = { git = "https://github.com/LeagueToolkit/league-mod", rev = "69f6583480e2da7f8d6bebee22ce53dc988ebeba", features = ["modpkg", "fantome"] }
 ltk_texture = { version = "0.6.7", features = ["intel-tex"] }
+ltk_wad = "0.5.9"
 image = { version = "0.25.2", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
