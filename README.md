@@ -1,1 +1,28 @@
-# Sable\n\nSable is a beginner-friendly workspace for understanding League of Legends .fantome and .modpkg mods, including HUDs and champion skins.\n\n## What works today\n\n- Open .fantome and .modpkg files locally in the browser.\n- Search and browse files grouped by HUD and interface, champion, map, audio, metadata, and other assets when their paths contain enough information.\n- Preview supported images and League .tex textures.\n- Open supported WAD archives and browse their internal entries by detected file type.\n- Use **Unpack to folder** to save a working copy for File Explorer. The folder preserves package files and puts readable WAD entries under wad-contents/, with a manifest and report.\n- Keep the downloaded source package untouched.\n\n## Current limits\n\nSable is still read-only. The unpacked files are for inspection and manual editing; this version cannot repack edits into a working .fantome or .modpkg yet. WADs store path hashes rather than original names, so entries without a matching path table keep hash-based filenames. Some compressed, encrypted, or oversized entries are reported as skipped.\n\nThe browser preview supports PNG, JPEG, WebP, GIF, BMP, and selected League TEX formats. WAD indexing supports major version 3. TEX previews currently support BC1, BC3, and BGRA8.\n\n## Run Sable\n\nOpen index.html in a current desktop browser. There is no build step. Folder extraction uses the browser File System Access API; Chrome and Edge on desktop are the intended browsers. When Zstandard is not available natively, Sable can load the pinned fzstd decoder from jsDelivr when needed; package contents stay in the browser.\n\n## Where the project is headed\n\nLeagueToolkit documents .modpkg as its recommended package format and supports loose project files organized by layer and target WAD. The best long-term fit is a Windows desktop app using Tauri with a Rust backend built on LeagueToolkit crates, while keeping Sable’s interface focused on visual browsing and editing. See DEVELOPMENT.md for the researched plan.\n\nThis is an unofficial community project and is not affiliated with or endorsed by Riot Games.\n
+# Sable
+
+Sable is a desktop workspace for exploring League of Legends .fantome and .modpkg mods, including HUDs and champion skins.
+
+## Try the Windows app
+
+The first build is a direct Windows executable so you can try Sable without installing a development environment.
+
+1. Open the repository's Actions tab.
+2. Select Build Windows executable and open its latest successful run.
+3. Download the Sable-windows-exe artifact, unzip it, and launch sable.exe.
+
+The app uses the WebView2 runtime available on most current Windows installations. This early build is unsigned and distributed as a workflow artifact.
+
+## What works today
+
+- Open .fantome and .modpkg files with a native file picker.
+- Browse files grouped by HUD and interface, champion, map, audio, metadata, and other assets when their paths contain enough information.
+- Preview supported images and League .tex textures.
+- Open supported WAD archives and browse their internal entries by detected file type.
+- Unpack a working copy to a folder you choose. Package files are preserved and readable WAD entries are organized under wad-contents/.
+- Keep the downloaded source package untouched.
+
+Sable is still read-only. The unpacked files are for inspection and manual editing; Sable cannot rebuild edits into a working .fantome or .modpkg yet. WAD entries without a resolved game path keep their hash as the filename. Some compressed, encrypted, or oversized entries are reported as skipped.
+
+The browser version remains available from app/index.html and keeps a browser file picker fallback. When Zstandard is unavailable, Sable can load the pinned fzstd decoder from jsDelivr when needed.
+
+This is an unofficial community project and is not affiliated with or endorsed by Riot Games.
