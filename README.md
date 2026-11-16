@@ -4,7 +4,7 @@ A beginner-friendly editor concept for customizing League of Legends `.fantome` 
 
 ## Current state
 
-`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It groups and searches package files by asset type and target WAD, opens supported `.wad.client` archives into grouped internal entries, and previews PNG, JPEG, WebP, GIF, BMP, and supported League `.tex` textures. Package contents stay in the browser; the original file is never changed.
+`index.html` opens legacy ZIP-based `.fantome` packages and modern League Toolkit `.modpkg` packages locally. It groups and searches package files by likely HUD purpose, asset type, and target WAD when those names are available, opens supported `.wad.client` archives into grouped internal entries, and previews PNG, JPEG, WebP, GIF, BMP, and supported League `.tex` textures. The "Likely HUD" label is guessed from filenames. Package contents stay in the browser; the original file is never changed.
 
 This is a read-only inspection step. WAD entries are identified from their contents and shown by hash because WAD archives do not store the original paths. TEX previews currently support BC1, BC3, and BGRA8 textures. The HUD controls still affect only the sample preview, and export stays disabled until real file edits can be preserved safely.
 
