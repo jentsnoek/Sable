@@ -126,7 +126,7 @@
     .asset-overlay.is-visible { display: flex !important; }
     .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
     .asset-viewer-title { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dce5; font-size: 11px; font-weight: 650; }
-    .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; }
+    .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; background-color: #f2eff3; background-image: linear-gradient(45deg, #b9b4bc 25%, transparent 25%, transparent 75%, #b9b4bc 75%), linear-gradient(45deg, #b9b4bc 25%, #f2eff3 25%, #f2eff3 75%, #b9b4bc 75%); background-position: 0 0, 12px 12px; background-size: 24px 24px; }
     .asset-message { max-width: 390px; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.6; }
     .map { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #40554a 0, #2c423a 25%, #21372f 53%, #172723 100%); }
     .map::before { content: ""; position: absolute; width: 50%; height: 75%; left: 25%; top: 14%; transform: rotate(-30deg); border: 2px solid #86947b30; border-radius: 40% 60% 55% 45%; background: linear-gradient(135deg, #77795018, #1b282323 45%, #9e94601a); box-shadow: 0 0 0 38px #111a1733, 0 0 0 76px #b6ad6820; }
@@ -926,6 +926,35 @@
     const readPackageEntry = (entry, maxBytes = MAX_PREVIEW_BYTES) => loadedPackage.format === "modpkg" || entry.format === "modpkg"
       ? readModpkgChunk(loadedPackage.buffer, entry, maxBytes)
       : readZipEntry(loadedPackage.buffer, entry, maxBytes);
+    const repairTransparentTexturePreview = async (image) => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) return false;
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        let maxAlpha = 0;
+        let hasColor = false;
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          maxAlpha = Math.max(maxAlpha, pixels.data[i + 3]);
+          if (pixels.data[i] || pixels.data[i + 1] || pixels.data[i + 2]) hasColor = true;
+        }
+        if (maxAlpha > 2 || !hasColor) return false;
+        for (let i = 3; i < pixels.data.length; i += 4) pixels.data[i] = 255;
+        context.putImageData(pixels, 0, 0);
+        const repaired = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!repaired) return false;
+        if (currentAssetUrl) URL.revokeObjectURL(currentAssetUrl);
+        currentAssetUrl = URL.createObjectURL(repaired);
+        image.src = currentAssetUrl;
+        await image.decode();
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const showNativeTexturePreview = async (entry, request) => {
       const message = document.getElementById("assetMessage");
       const image = document.getElementById("assetImage");
@@ -943,6 +972,8 @@
       message.classList.add("hidden");
       await image.decode();
       if (request !== previewRequest) return;
+      await repairTransparentTexturePreview(image);
+      if (request !== previewRequest) return;
       const dimensions = `${image.naturalWidth}×${image.naturalHeight}`;
       document.getElementById("inspectTag").textContent = `TEX ${dimensions}`;
       document.getElementById("selectedPath").textContent = `${image.naturalWidth} × ${image.naturalHeight} · native PNG preview · ${preview.texturePath}`;
@@ -958,6 +989,10 @@
       if (request !== previewRequest) return;
       currentAssetUrl = URL.createObjectURL(preview.blob);
       image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
+      await image.decode();
+      if (request !== previewRequest) return;
+      await repairTransparentTexturePreview(image);
+      if (request !== previewRequest) return;
       document.getElementById("inspectTag").textContent = `TEX ${preview.width}×${preview.height}`;
       document.getElementById("selectedPath").textContent = `${preview.width} × ${preview.height} · format ${preview.format} · ${preview.mipCount} mip${preview.mipCount === 1 ? "" : "s"} · ${entry.displayPath || entry.path}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${preview.width}×${preview.height}`;
