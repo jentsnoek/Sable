@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#151316">
-  <title>Sable — League mod editor</title>
+  <title>Sable — League mod workspace</title>
   <style>
     :root {
       color-scheme: dark;
@@ -203,24 +203,72 @@
     @media (max-width: 1120px) { .layout { grid-template-columns: 220px minmax(380px,1fr) 250px; }.brand { min-width: 180px; }.items { right: 160px; } }
     @media (max-width: 900px) { .layout { grid-template-columns: 210px minmax(360px,1fr); }.inspector { display: none; }.status { display: none; } }
     @media (max-width: 650px) { .topbar { padding: 0 12px; gap: 12px; }.brand { min-width: 0; }.brand-sub,.crumb,.topbar .quiet { display: none; }.layout { display: flex; flex-direction: column; }.sidebar { min-height: auto; border-right: 0; border-bottom: 1px solid var(--line); }.side-top { padding: 12px; }.side-tabs { display: none; }.side-content { padding: 0 10px 10px; }.section-head { margin: 0 3px 5px; }.element-list { grid-template-columns: repeat(3,1fr); }.element-row { padding: 5px; min-height: 53px; gap: 5px; flex-wrap: wrap; }.element-row .toggle { margin-left: auto; }.element-sub { display: none; }.side-bottom { display: none; }.workspace { min-height: 58vh; }.toolbar { height: 45px; flex-basis: 45px; padding: 0 10px; }.canvas-wrap { min-height: 300px; padding: 16px 9px; }.game-preview { border-radius: 6px; }.player-panel { left: 7px; bottom: 6px; transform: scale(.76); transform-origin: bottom left; }.ability-bar { bottom: 6px; transform: translateX(-50%) scale(.78); transform-origin: bottom center; }.items { right: 94px; bottom: 9px; transform: scale(.76); transform-origin: bottom right; }.minimap { right: 6px; bottom: 6px; width: 77px; }.preview-top { top: 6px; padding: 4px 7px; gap: 6px; font-size: 7px; }.preview-mini { top: 7px; right: 7px; font-size: 6px; } }
+  
+    /* Sable workspace refresh: keep the asset browser and its scroll area inside the app viewport. */
+    body { height: 100dvh; overflow: hidden; }
+    .app { height: 100dvh; min-height: 0; overflow: hidden; }
+    .topbar { height: 64px; flex-basis: 64px; gap: 16px; padding: 0 18px; }
+    .brand { min-width: 0; flex: 0 0 auto; }
+    .brand-logo-frame, .welcome-logo-frame { display: grid; place-items: center; border: 1px solid #bca6c7; border-radius: 10px; background: #e6d8ec; box-shadow: 0 5px 22px #0003; }
+    .brand-logo-frame { width: 158px; height: 50px; padding: 2px 5px; }
+    .brand-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .layout { height: calc(100dvh - 64px); flex: 1 1 auto; min-height: 0; overflow: hidden; grid-template-columns: 320px minmax(0, 1fr) 278px; }
+    .sidebar, .inspector { height: 100%; min-height: 0; overflow: hidden; }
+    .sidebar { border-right-color: #342e37; }
+    .side-top { flex: 0 0 auto; padding: 18px 14px 12px; }
+    .side-tabs { display: none !important; }
+    .side-content { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; padding: 10px 12px 12px; }
+    #elementsView { display: none !important; }
+    #assetsView:not(.hidden) { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+    .asset-guide { flex: 0 0 auto; margin: 0 2px 9px; font-size: 10px; }
+    .meta-details { flex: 0 0 auto; margin: 0 0 7px; border: 1px solid #39333b; border-radius: 8px; background: #201d21; }
+    .meta-details > summary { padding: 8px 10px; color: #e5dde5; cursor: pointer; font-size: 10px; font-weight: 650; }
+    .meta-details[open] > summary { border-bottom: 1px solid #39333b; }
+    .package-meta { gap: 6px; margin: 0; padding: 9px; border: 0; background: transparent; }
+    .asset-search { flex: 0 0 auto; margin: 2px 0 8px; font-size: 11px; }
+    .wad-back { flex: 0 0 auto; }
+    .asset-list { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; width: 100%; min-height: 0; max-height: none; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 3px 4px; }
+    .asset-group { flex: 0 0 auto; width: 100%; min-width: 0; }
+    .asset-group-rows { display: grid; min-width: 0; }
+    .asset-row { min-width: 0; }
+    .workspace { height: 100%; min-height: 0; overflow: hidden; }
+    .toolbar { height: 52px; flex-basis: 52px; gap: 11px; }
+    .toolbar-title { color: #eadfe7; }
+    .canvas-wrap { min-height: 0; justify-content: flex-start; align-items: stretch; gap: 11px; padding: clamp(16px, 2.5vw, 34px); }
+    .canvas-label { width: 100%; max-width: 1100px; flex: 0 0 auto; color: #a99eaa; }
+    .game-preview { width: 100%; max-width: 1100px; height: auto; min-height: 0; flex: 1 1 auto; aspect-ratio: auto; margin: 0 auto; background: radial-gradient(ellipse at center, #29242d, #151316 75%); }
+    .game-preview > .map, .game-preview > .preview-top, .game-preview > .preview-mini, .game-preview > .mock-hud { display: none !important; }
+    .empty-canvas { background: radial-gradient(ellipse at center, #29242d, #151316 76%); }
+    .welcome-logo-frame { width: 194px; height: 66px; padding: 4px 8px; }
+    .welcome-logo { width: 100%; height: 100%; object-fit: contain; }
+    .empty-copy { max-width: 460px; font-size: 12px; }
+    .empty-note { font-size: 10px; }
+    .asset-overlay { background: #151316; }
+    .asset-image { max-width: 96%; max-height: calc(100% - 42px); }
+    .inspector { display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+    .inspect-head { flex: 0 0 auto; }
+    .inspect-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+    @media (max-width: 1120px) { .layout { grid-template-columns: 292px minmax(0, 1fr) 250px; } }
+    @media (max-width: 900px) { .layout { grid-template-columns: 280px minmax(0, 1fr); }.inspector { display: none; } }
+    @media (max-width: 650px) { body, .app { height: auto; min-height: 100dvh; overflow: auto; }.topbar { position: sticky; top: 0; z-index: 30; }.layout { display: flex; height: auto; min-height: calc(100dvh - 64px); overflow: visible; flex-direction: column; }.sidebar { height: 54vh; min-height: 300px; max-height: 68vh; border-right: 0; border-bottom: 1px solid var(--line); }.side-top { padding: 12px; }.side-content { padding: 8px 10px 10px; }.workspace { height: 62vh; min-height: 390px; }.toolbar { height: 46px; flex-basis: 46px; padding: 0 10px; }.canvas-wrap { padding: 14px 10px; }.inspector { display: none; }.side-bottom { display: none; }.brand-logo-frame { width: 135px; height: 44px; }.topbar .status { display: none; }.topbar .quiet { display: inline-flex; }.topbar .btn { padding: 9px 10px; font-size: 10px; } }
+
   </style>
 </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SABLE</div><div class="brand-sub">League mod editor</div></div></div>
-      <div class="crumb">Projects <span>›</span> <strong id="projectName">Sable</strong></div>
+      <div class="brand"><span class="brand-logo-frame"><img class="brand-logo" src="assets/sable-logo.png" alt="Sable"></span></div>
       <div class="top-spacer"></div>
-      <div class="status"><span class="dot"></span> <span id="statusText">Preview ready</span></div>
-      <button class="btn quiet" id="openFile">＋ Open mod file</button>
-      <button class="btn primary" id="exportBtn" disabled title="Editing and export are not implemented yet.">Export edited copy <span>↗</span></button>
+      <div class="status"><span class="dot"></span> <span id="statusText">Ready</span></div>
+      <button class="btn quiet" id="openFile" type="button">Open mod</button>
+      <button class="btn primary" id="unpackBtn" type="button" disabled title="Save an organized working copy to a folder you choose.">Unpack to folder <span>↗</span></button>
       <input type="file" id="filePicker" accept=".fantome,.modpkg,.zip" hidden>
     </header>
 
     <main class="layout">
       <aside class="sidebar">
         <div class="side-top">
-          <div class="eyebrow">Current mod</div>
+          <div class="eyebrow">Current package</div>
           <div class="file-card"><div class="file-icon">MOD</div><div class="file-meta"><div class="file-name" id="modName">No mod opened</div><div class="file-desc" id="fileDesc">Choose a .fantome or .modpkg file</div></div><span class="file-check" id="fileCheck">·</span></div>
         </div>
         <div class="side-tabs"><button class="side-tab active" data-view="elements">Preview</button><button class="side-tab" data-view="assets">Assets</button><button class="side-tab" data-toast="Project settings are planned for a later stage.">Settings</button></div>
@@ -236,33 +284,24 @@
             <div class="element-row" data-element="score"><span class="element-symbol">0:0</span><div class="element-name-wrap"><div class="element-name">Match score</div><div class="element-sub">Scoreboard · game timer</div></div><button class="toggle on" aria-label="Toggle Match score"></button></div>
             </div>
           </div>
-          <div id="assetsView" class="hidden">
-            <div class="asset-guide" id="assetGuide"><strong>For HUDs:</strong> start with Likely HUD textures. <strong>For skins:</strong> explore textures and models. Search for a champion or names like HUD, atlas, minimap, or ability. Sable can preview files, but editing is not available yet.</div>
-            <div class="section-head"><span class="eyebrow" id="assetCount">Package files</span><span class="tiny-action">Local only</span></div>
-            <div class="package-meta" id="packageMeta"><div class="asset-empty-list">Open a `.fantome` file to view its metadata and packaged assets.</div></div>
-            <input class="asset-search" id="assetSearch" type="search" placeholder="Search files…" aria-label="Search package files">
+          <div id="assetsView">
+            <div class="asset-guide" id="assetGuide">Files are grouped by what their paths suggest. Search by champion, HUD, map, or filename.</div>
+            <div class="section-head"><span class="eyebrow" id="assetCount">Files in package</span><span class="tiny-action">On this device</span></div>
+            <details class="meta-details"><summary>Package details</summary><div class="package-meta" id="packageMeta"><div class="asset-empty-list">Package details will appear here.</div></div></details>
+            <input class="asset-search" id="assetSearch" type="search" placeholder="Search champions, HUD, maps, files…" aria-label="Search package files">
             <button class="btn quiet wad-back hidden" id="wadBack" type="button">Back to package files</button>
             <div class="asset-list" id="packageFiles"><div class="asset-empty-list">Package files will appear here.</div></div>
           </div>
         </div>
-        <div class="side-bottom">Sable reads .fantome and .modpkg files locally. The original stays untouched; editing comes next.</div>
+        <div class="side-bottom">Browse grouped assets, preview supported files, or unpack a working copy for File Explorer.</div>
       </aside>
 
       <section class="workspace">
-        <div class="toolbar"><span class="toolbar-title">LIVE PREVIEW</span><span class="toolbar-line"></span><span class="tool-label">Canvas</span><span class="select-like">Summoner's Rift ▾</span><span class="toolbar-spacer"></span><button class="btn icon" id="zoomOut" aria-label="Zoom out">−</button><span class="tool-label" id="zoomLabel">100%</span><button class="btn icon" id="zoomIn" aria-label="Zoom in">＋</button><button class="btn icon" id="resetBtn" aria-label="Reset selected element">↺</button></div>
+        <div class="toolbar"><span class="toolbar-title">ASSET PREVIEW</span><span class="toolbar-line"></span><span class="tool-label" id="workspaceFileLabel">Open a mod to get started</span><span class="toolbar-spacer"></span><span class="tag">Read only</span></div>
         <div class="canvas-wrap">
-          <div class="canvas-label"><span>In-game preview · 16:9</span><span>Click an element on the left to edit</span></div>
+          <div class="canvas-label"><span>Preview</span><span>Select a file from the library</span></div>
           <div class="game-preview no-package" id="gamePreview">
-            <div class="empty-canvas" id="emptyCanvas"><div class="empty-mark">S</div><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a League .fantome or .modpkg file to browse its HUD or skin assets.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod file</button><div class="empty-note">Sable reads the selected file locally and leaves your original untouched.</div></div>
-            <div class="map"><div class="lane"></div><div class="lane two"></div><div class="river"></div><div class="map-controls">SUMMONER'S RIFT<span>PREVIEW ENVIRONMENT</span></div></div>
-            <div class="preview-top hud-target" data-target="score"><div class="team-score"><span class="team-blue">3</span><span>—</span><span class="team-red">2</span></div><span class="clock">12:48</span><span>◈</span><span>2.4k</span></div>
-            <div class="preview-mini">FPS: 144 &nbsp; MS: 28</div>
-            <div class="mock-hud" id="mockHud">
-              <div class="player-panel hud-target" data-target="player"><div class="player-upper"><div class="portrait">J</div><div class="bars"><div class="bar"><span class="hp"></span></div><div class="bar"><span class="mp"></span></div><div class="player-meta">1,248 / 1,640</div></div></div><span class="level">11</span></div>
-              <div class="ability-bar hud-target selected-target" data-target="abilities"><div class="ability">Q<small>3</small></div><div class="ability">W<small>2</small></div><div class="ability">E<small>4</small></div><div class="ability active-ability">R<small>1</small></div><div class="spells"><div class="spell">D</div><div class="spell">F</div></div></div>
-              <div class="items hud-target" data-target="items"><div class="item"></div><div class="item"></div><div class="item"></div><div class="item"></div><div class="item"></div><div class="item"></div></div>
-              <div class="minimap hud-target" data-target="minimap"><div class="mini-diag"></div><div class="mini-diag two"></div><div class="mini-river"></div><span class="mini-dot"></span><span class="mini-dot red"></span></div>
-            </div>
+            <div class="empty-canvas" id="emptyCanvas"><span class="welcome-logo-frame"><img class="welcome-logo" src="assets/sable-logo.png" alt=""></span><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a .fantome or .modpkg to browse its files, preview supported assets, and unpack a working copy.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod</button><div class="empty-note">Your original download stays untouched.</div></div>
             <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
           </div>
         </div>
@@ -271,7 +310,7 @@
       <aside class="inspector">
         <div class="inspect-head"><div class="eyebrow" id="inspectEyebrow">Selected element</div><div class="inspect-title"><h1 id="selectedName">Ability bar</h1><span class="tag" id="inspectTag">Preview</span></div><div class="inspect-path" id="selectedPath">HUD / Ability bar</div></div>
         <div class="inspect-body">
-          <div class="tip" id="startPrompt"><strong>Open a mod to begin.</strong> Sable can inspect its contents now. Real HUD edits and export are still being built.</div>
+          <div class="tip" id="startPrompt"><strong>Open a mod to begin.</strong> Select a file from the library to see its preview and package details.</div>
           <div class="hidden" id="visualControls">
           <div class="control-group"><div class="control-title"><span>Position</span><span>Canvas-relative</span></div><div class="xy-grid"><label><span class="field-label">Horizontal</span><span class="number-field"><input type="number" id="posX" value="0" min="-100" max="100"><span>px</span></span></label><label><span class="field-label">Vertical</span><span class="number-field"><input type="number" id="posY" value="0" min="-100" max="100"><span>px</span></span></label></div></div>
           <div class="control-group"><div class="control-title"><span>Scale</span><span id="scaleText">100%</span></div><div class="range-row"><input type="range" id="scaleRange" min="70" max="140" value="100"><span class="range-value" id="scaleValue">100%</span></div></div>
@@ -280,7 +319,7 @@
           <div class="control-group"><div class="check-row"><span>Show this element</span><button class="mini-switch" id="visibilitySwitch" aria-label="Toggle visibility"></button></div></div>
           <div class="tip"><strong>Safe editing:</strong> your original download should stay untouched. Export will make a new copy with your changes.</div>
           </div>
-          <div class="tip hidden" id="assetReadOnly"><strong>Read-only preview:</strong> Sable can inspect this entry, but editing and export are not implemented yet.</div>
+          <div class="tip hidden" id="assetReadOnly"><strong>Read-only preview.</strong> File editing and repacking are planned for a later version.</div>
         </div>
       </aside>
     </main>
@@ -299,6 +338,8 @@
     let fzstdLoadPromise = null;
     const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
     const MAX_PREVIEW_BYTES = 96 * 1024 * 1024;
+    const MAX_UNPACK_ENTRY_BYTES = 256 * 1024 * 1024;
+    const MAX_UNPACK_TOTAL_BYTES = 1536 * 1024 * 1024;
     const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp" };
     const toast = (message) => {
       const node = document.getElementById("toast");
@@ -374,9 +415,9 @@
       }
       return { buffer, entries };
     };
-    const readZipEntry = async (buffer, entry) => {
-      if (entry.flags & 1) throw new Error("This entry is encrypted and cannot be previewed.");
-      if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This entry is larger than 96 MB, so Sable skipped its preview.");
+    const readZipEntry = async (buffer, entry, maxBytes = MAX_PREVIEW_BYTES) => {
+      if (entry.flags & 1) throw new Error("This entry is encrypted and cannot be read.");
+      if (entry.size > maxBytes) throw new Error("This entry is larger than the current extraction limit.");
       const view = new DataView(buffer);
       const bytes = new Uint8Array(buffer);
       if (entry.localOffset + 30 > bytes.length || view.getUint32(entry.localOffset, true) !== 0x04034b50) throw new Error("The entry's local ZIP header is damaged.");
@@ -458,8 +499,8 @@
       }
       return { entries, version: `${major}.${minor}`, compressionCounts };
     };
-    const readWadChunk = async (wadBytes, entry) => {
-      if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This WAD entry is larger than 96 MB, so Sable skipped opening it.");
+    const readWadChunk = async (wadBytes, entry, maxBytes = MAX_PREVIEW_BYTES) => {
+      if (entry.size > maxBytes) throw new Error("This WAD entry is larger than the current extraction limit.");
       const compressed = wadBytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
       if (entry.compression === 0) return compressed.slice();
       if (entry.compression === 1) return decompressBytes(compressed, "gzip", entry.size);
@@ -732,9 +773,9 @@
       }
       return { buffer, entries: chunks, metadata, layers, format: "modpkg" };
     };
-    const readModpkgChunk = async (buffer, entry) => {
+    const readModpkgChunk = async (buffer, entry, maxBytes = MAX_PREVIEW_BYTES) => {
       const bytes = new Uint8Array(buffer);
-      if (entry.size > MAX_PREVIEW_BYTES) throw new Error("This entry is larger than 96 MB, so Sable skipped its preview.");
+      if (entry.size > maxBytes) throw new Error("This entry is larger than the current extraction limit.");
       const compressed = bytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
       if (entry.compression === 0) return compressed.slice();
       if (entry.compression === 1) return decompressZstd(compressed, entry.size);
@@ -764,28 +805,42 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["Textures", "Images", "WAD archives", "WAD contents", "Models & animation", "Audio", "Game data", "Metadata", "Other WAD entries", "Unclassified WAD entries", "Other"];
-    assetGroupOrder.unshift("Likely HUD textures", "Other textures");
+    const assetGroupOrder = ["HUD & interface", "Champions", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
     const assetGroupFor = (entry) => {
-      const path = `${entry.path} ${entry.displayPath || ""}`.toLowerCase();
-      const extension = fileExtension(entry.path);
-      if (entry.format === "wad-chunk") return entry.assetType || "WAD contents";
-      let group = "Other";
-      if (/\.wad(?:\.client)?$/i.test(path)) group = "WAD archives";
-      else if ([".tex", ".dds"].includes(extension)) group = /(hud|atlas|minimap|ability|spell|summoner|scoreboard|health.?bar|resource.?bar)/i.test(path) ? "Likely HUD textures" : "Other textures";
-      else if (IMAGE_MIME[extension]) group = "Images";
-      else if ([".skn", ".skl", ".anm", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension)) group = "Models & animation";
-      else if ([".bnk", ".wem", ".wpk"].includes(extension)) group = "Audio";
-      else if ([".json", ".msgpack", ".bin"].includes(extension) || path.startsWith("_meta/") || path.startsWith("meta/")) group = "Metadata";
-      return entry.wad && group !== "Metadata" ? `${group} · ${entry.wad}` : group;
+      const path = (entry.path + " " + (entry.displayPath || "") + " " + (entry.wad || "")).replace(/\\/g, "/").toLowerCase();
+      const parts = path.split("/").map((part) => part.trim()).filter(Boolean);
+      const extension = fileExtension(entry.displayPath || entry.path);
+      let champion = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (parts[i] === "champions" || parts[i] === "characters") { champion = parts[i + 1].replace(/\.wad(?:\.client)?$/i, ""); break; }
+      }
+      const titleCase = (value) => value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
+      if (isHud) return champion ? "HUD & interface · " + titleCase(champion) : "HUD & interface";
+      if (parts.some((part) => part.includes("summonersrift") || part === "map" || part === "maps" || part.includes("terrain") || part.startsWith("map.wad")) || path.includes("map.wad")) return "Maps & environment";
+      if (champion) return "Champions · " + titleCase(champion);
+      if ([".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension) || parts.some((part) => part === "audio" || part === "sounds" || part.startsWith("audio.wad") || part.startsWith("sfx.wad"))) return "Audio";
+      if (path.startsWith("_meta/") || path.startsWith("meta/") || parts.some((part) => part === "info.json" || part === "info.msgpack" || part === "manifest.json")) return "Package metadata";
+      if (entry.format === "wad-chunk") {
+        const targetName = (entry.wad || "").split("/").pop() || "";
+        const targetLabel = titleCase(targetName.toLowerCase().replace(".client", "").replace(".wad", ""));
+        return (entry.assetType || "Other game assets") + (targetLabel ? " · " + targetLabel : " · WAD contents");
+      }
+      if ([".tex", ".dds"].includes(extension)) return "Textures";
+      if (IMAGE_MIME[extension]) return "Images";
+      if ([".skn", ".skl", ".anm", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension)) return "Models & animation";
+      if (entry.wad) return "Other game assets";
+      if (path.endsWith(".wad") || path.endsWith(".wad.client")) return "WAD archives";
+      if ([".json", ".msgpack", ".bin"].includes(extension)) return "Package metadata";
+      return "Other";
     };
     const renderPackageFiles = (entries, countLabel = "package files") => {
       const list = document.getElementById("packageFiles");
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "WAD entries use hashed names, so Sable can group them by detected file type but cannot identify each HUD part yet. Expand Textures to inspect TEX files."
-        : "HUD mods: start with Likely HUD textures; this label is guessed from filenames. Skin mods: explore Other textures and Models & animation. Search for the champion or names like HUD, atlas, minimap, or ability. These files can be previewed, but not edited yet.";
+        ? "WAD entries may have hashed names. Sable groups those by detected file type; file names may need a game path hash list to resolve."
+        : "Use the group names as a guide. Paths can identify champions and HUD areas; unnamed WAD entries stay grouped by file type.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
@@ -804,7 +859,7 @@
         const groupEntries = groups.get(groupName);
         if (!groupEntries?.length) continue;
         groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
-        const group = document.createElement("details"); group.className = "asset-group"; group.open = groupName.startsWith("Likely HUD textures") || groupName.startsWith("WAD archives");
+        const group = document.createElement("details"); group.className = "asset-group"; group.open = groupEntries.length <= 5;
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -826,9 +881,9 @@
         list.append(group);
       }
     };
-    const readPackageEntry = (entry) => entry.format === "modpkg"
-      ? readModpkgChunk(loadedPackage.buffer, entry)
-      : readZipEntry(loadedPackage.buffer, entry);
+    const readPackageEntry = (entry, maxBytes = MAX_PREVIEW_BYTES) => loadedPackage.format === "modpkg" || entry.format === "modpkg"
+      ? readModpkgChunk(loadedPackage.buffer, entry, maxBytes)
+      : readZipEntry(loadedPackage.buffer, entry, maxBytes);
     const showTexturePreview = async (bytes, entry, request) => {
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
       message.textContent = "Decoding texture preview."; message.classList.remove("hidden");
@@ -842,6 +897,7 @@
     };
     const selectPackageEntry = async (entry, row) => {
       const request = ++previewRequest;
+      document.getElementById("workspaceFileLabel").textContent = entry.displayPath || entry.path;
       document.querySelectorAll(".asset-row").forEach((node) => node.classList.toggle("selected", node === row));
       document.getElementById("gamePreview").classList.add("asset-mode");
       document.getElementById("visualControls").classList.add("hidden");
@@ -921,6 +977,103 @@
         message.classList.remove("hidden");
       }
     };
+    const safeFileSegment = (value) => String(value || "unnamed").replace(/[<>:"|?*\x00-\x1f]/g, "_").replace(/[. ]+$/g, "").slice(0, 120) || "unnamed";
+    const safeRelativeSegments = (value) => String(value || "").replace(/\\/g, "/").split("/").filter((part) => part && part !== "." && part !== "..").map(safeFileSegment);
+    const writeFolderFile = async (root, relativeSegments, content) => {
+      let parent = root;
+      for (const segment of relativeSegments.slice(0, -1)) parent = await parent.getDirectoryHandle(segment, { create: true });
+      const handle = await parent.getFileHandle(relativeSegments[relativeSegments.length - 1], { create: true });
+      const writer = await handle.createWritable({ keepExistingData: false });
+      try { await writer.write(content); await writer.close(); } catch (error) { try { await writer.abort(); } catch {} throw error; }
+    };
+    const makeUniqueFolder = async (parent, baseName) => {
+      const base = safeFileSegment(baseName);
+      for (let index = 1; index < 1000; index++) {
+        const name = index === 1 ? base : base + " (" + index + ")";
+        try { await parent.getDirectoryHandle(name); }
+        catch (error) { if (error.name === "NotFoundError") return { name, handle: await parent.getDirectoryHandle(name, { create: true }) }; throw error; }
+      }
+      throw new Error("Could not find a free folder name.");
+    };
+    const wadExtensionFor = (bytes) => {
+      const magic = String.fromCharCode(...bytes.subarray(0, 4));
+      if (magic.slice(0, 3) === "TEX") return "tex";
+      if (magic === "DDS ") return "dds";
+      if (magic.slice(0, 3) === "SKN") return "skn";
+      if (magic.slice(0, 3) === "SKL") return "skl";
+      if (magic.slice(0, 3) === "ANM") return "anm";
+      if (magic.slice(0, 3) === "SCB") return "scb";
+      if (magic.slice(0, 3) === "SCO") return "sco";
+      if (magic === "PROP" || magic === "PTCH") return "bin";
+      if (magic === "BKHD") return "bnk";
+      if (magic === "RIFF") return "wem";
+      if (bytes[0] === 0x89 && magic.slice(1, 4) === "PNG") return "png";
+      return "bin";
+    };
+    const unpackLoadedPackage = async () => {
+      if (!loadedPackage) return;
+      if (typeof window.showDirectoryPicker !== "function") { toast("Folder access needs Chrome or Edge on desktop."); return; }
+      let parentHandle;
+      try { parentHandle = await window.showDirectoryPicker({ mode: "readwrite" }); }
+      catch (error) { if (error.name === "AbortError") return; toast(error.message || "Could not open that folder."); return; }
+      const sourceName = loadedPackage.file.name.replace(/\.[^.]+$/, "");
+      let outputRoot;
+      try { outputRoot = await makeUniqueFolder(parentHandle, sourceName + " - Sable workspace"); }
+      catch (error) { toast(error.message || "Could not create a workspace folder."); return; }
+      const report = { sourceFile: loadedPackage.file.name, sourceFormat: loadedPackage.format, outputFolder: outputRoot.name, packageFiles: [], wadFiles: [], skipped: [], notes: ["This folder is a working copy for inspection and editing in File Explorer. Sable does not repack edited files yet.", "WAD entries without a resolved game path are stored using their 64-bit hash.", "Entries above 256 MB, encrypted, unsupported, or beyond the 1.5 GB total output limit are listed as skipped."] };
+      let totalBytes = 0;
+      const skip = (path, reason) => report.skipped.push({ path, reason });
+      const progress = (message) => { setStatus(message); return new Promise((resolve) => requestAnimationFrame(resolve)); };
+      document.getElementById("unpackBtn").disabled = true;
+      setStatus("Unpacking package…");
+      try {
+        for (let index = 0; index < loadedPackage.entries.length; index++) {
+          const entry = loadedPackage.entries[index];
+          const entryPath = safeRelativeSegments(entry.path);
+          if (!entryPath.length || entry.path.endsWith("/")) { skip(entry.path, "Not a regular file path."); continue; }
+          try {
+            if (entry.size > MAX_UNPACK_ENTRY_BYTES) throw new Error("Entry exceeds 256 MB.");
+            if (totalBytes + entry.size > MAX_UNPACK_TOTAL_BYTES) throw new Error("The 1.5 GB total output limit was reached.");
+            const packageBytes = await readPackageEntry(entry, MAX_UNPACK_ENTRY_BYTES);
+            await writeFolderFile(outputRoot.handle, ["package", ...entryPath], packageBytes);
+            totalBytes += packageBytes.byteLength;
+            report.packageFiles.push({ path: entryPath.join("/"), bytes: packageBytes.byteLength });
+            const lowerPath = entry.path.toLowerCase();
+            if (lowerPath.endsWith(".wad") || lowerPath.endsWith(".wad.client")) {
+              try {
+                const wad = parseWadIndex(packageBytes, entry.path);
+                const wadBase = safeFileSegment(entryPath[entryPath.length - 1].replace(/\.wad(?:\.client)?$/i, "") || "wad");
+                const wadManifest = { sourceWad: entry.path, entries: [], note: "Hash names are kept where Sable cannot resolve the original game path." };
+                for (let chunkIndex = 0; chunkIndex < wad.entries.length; chunkIndex++) {
+                  const chunk = wad.entries[chunkIndex];
+                  try {
+                    if (chunk.size > MAX_UNPACK_ENTRY_BYTES) throw new Error("Entry exceeds 256 MB.");
+                    if (totalBytes + chunk.size > MAX_UNPACK_TOTAL_BYTES) throw new Error("The 1.5 GB total output limit was reached.");
+                    const chunkBytes = await readWadChunk(packageBytes, chunk, MAX_UNPACK_ENTRY_BYTES);
+                    const assetType = identifyWadAsset(chunkBytes);
+                    const extension = wadExtensionFor(chunkBytes);
+                    const relativePath = ["wad-contents", wadBase, safeFileSegment(assetType), chunk.hash + "." + extension];
+                    await writeFolderFile(outputRoot.handle, relativePath, chunkBytes);
+                    totalBytes += chunkBytes.byteLength;
+                    const item = { hash: chunk.hash, type: assetType, bytes: chunkBytes.byteLength, compression: chunk.compressionName, path: relativePath.join("/") };
+                    wadManifest.entries.push(item); report.wadFiles.push(item);
+                  } catch (error) { wadManifest.entries.push({ hash: chunk.hash, type: chunk.assetType || "Unknown", skipped: error.message }); skip(entry.path + " #" + chunk.hash, error.message); }
+                  if (chunkIndex > 0 && chunkIndex % 40 === 0) await progress("Unpacking " + wadBase + " · " + (chunkIndex + 1) + "/" + wad.entries.length);
+                }
+                await writeFolderFile(outputRoot.handle, ["wad-contents", wadBase, "manifest.json"], new Blob([JSON.stringify(wadManifest, null, 2)], { type: "application/json" }));
+              } catch (error) { skip(entry.path + " (WAD contents)", error.message || "WAD could not be opened."); }
+            }
+          } catch (error) { skip(entry.path, error.message || "Could not extract this entry."); }
+          if (index > 0 && index % 8 === 0) await progress("Unpacking package · " + (index + 1) + "/" + loadedPackage.entries.length);
+        }
+        const notes = "# Sable working copy\n\nSource: " + loadedPackage.file.name + " (" + loadedPackage.format.toUpperCase() + ")\n\n- package/ contains files preserved from the mod package.\n- wad-contents/ contains supported WAD entries grouped by detected type. Unresolved WAD paths keep their hash as the filename.\n- See SABLE-unpack-report.json for skipped files and each WAD entry.\n\nThis is an inspection/editing copy. Sable cannot rebuild a .fantome or .modpkg from edited files yet; the original download is unchanged.\n";
+        await writeFolderFile(outputRoot.handle, ["SABLE-WORKING-COPY.md"], new Blob([notes], { type: "text/markdown" }));
+        await writeFolderFile(outputRoot.handle, ["SABLE-unpack-report.json"], new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+        setStatus("Workspace unpacked");
+        toast("Unpacked " + report.packageFiles.length + " package files and " + report.wadFiles.length + " WAD entries.");
+      } catch (error) { report.failure = error.message || "Unpack stopped unexpectedly."; try { await writeFolderFile(outputRoot.handle, ["SABLE-unpack-report.json"], new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })); } catch {} setStatus("Unpack incomplete"); toast(report.failure); }
+      finally { document.getElementById("unpackBtn").disabled = !loadedPackage; }
+    };
     const switchSidebarView = (view) => {
       document.querySelectorAll(".side-tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
       document.getElementById("elementsView").classList.toggle("hidden", view !== "elements");
@@ -965,6 +1118,7 @@
       previewRequest++;
       setStatus("Reading package…");
       document.getElementById("openFile").disabled = true;
+      document.getElementById("unpackBtn").disabled = true;
       document.getElementById("fileCheck").textContent = "…";
       try {
         const signature = new TextDecoder().decode(await file.slice(0, 8).arrayBuffer());
@@ -988,9 +1142,10 @@
         setCanvasState("assets");
         const displayName = metadata.display_name || metadata.name || metadata.Name || file.name;
         document.getElementById("modName").textContent = displayName;
-        document.getElementById("projectName").textContent = displayName;
+        document.getElementById("workspaceFileLabel").textContent = displayName;
         document.getElementById("fileDesc").textContent = `${archive.entries.length} entries · ${format.toUpperCase()} · ${prettyBytes(file.size)}`;
         document.getElementById("fileCheck").textContent = "✓";
+        document.getElementById("unpackBtn").disabled = false;
         renderPackageMeta(metadata, file.name);
         document.getElementById("assetSearch").value = "";
         renderPackageFiles(archive.entries);
@@ -1018,6 +1173,7 @@
         toast(error.message || "Could not open this mod package.");
       } finally {
         document.getElementById("openFile").disabled = false;
+        document.getElementById("unpackBtn").disabled = !loadedPackage;
       }
     };
     const targetsFor = (key) => [...document.querySelectorAll(`[data-target="${key}"]`)];
@@ -1094,25 +1250,17 @@
       const toggle = document.querySelector(`.element-row[data-element="${selected}"] .toggle`);
       toggle.classList.toggle("on"); syncVisibility();
     });
-    document.getElementById("resetBtn").addEventListener("click", () => {
-      delete presets[selected];
-      const toggle = document.querySelector(`.element-row[data-element="${selected}"] .toggle`);
-      toggle.classList.add("on");
-      selectElement(selected);
-      toast(`${elementNames[selected]} reset in preview`);
-    });
     document.getElementById("showAll").addEventListener("click", () => {
       document.querySelectorAll(".element-row .toggle").forEach((toggle) => toggle.classList.add("on"));
       document.querySelectorAll(".hud-target").forEach((node) => node.style.display = "");
       syncVisibility(); toast("All HUD elements are visible");
     });
-    document.getElementById("zoomIn").addEventListener("click", () => { zoom = Math.min(120, zoom + 10); document.getElementById("zoomLabel").textContent = `${zoom}%`; document.getElementById("gamePreview").style.width = `min(${zoom}%, 860px)`; });
-    document.getElementById("zoomOut").addEventListener("click", () => { zoom = Math.max(70, zoom - 10); document.getElementById("zoomLabel").textContent = `${zoom}%`; document.getElementById("gamePreview").style.width = `min(${zoom}%, 860px)`; });
     document.querySelectorAll(".side-tab").forEach((tab) => tab.addEventListener("click", () => {
       if (tab.dataset.view) switchSidebarView(tab.dataset.view);
       else if (tab.dataset.toast) toast(tab.dataset.toast);
     }));
     document.getElementById("openFile").addEventListener("click", () => document.getElementById("filePicker").click());
+    document.getElementById("unpackBtn").addEventListener("click", () => unpackLoadedPackage());
     document.getElementById("emptyOpenFile").addEventListener("click", () => document.getElementById("filePicker").click());
     document.getElementById("wadBack").addEventListener("click", returnToPackageFiles);
     document.getElementById("filePicker").addEventListener("change", (event) => {
@@ -1145,28 +1293,17 @@
       else empty.remove();
     });
     const setCanvasState = (state) => {
-      const mode = document.querySelector(".select-like");
       const labels = document.querySelectorAll(".canvas-label span");
-      document.getElementById("visualControls").classList.toggle("hidden", state !== "sample");
+      document.getElementById("visualControls").classList.add("hidden");
       document.getElementById("startPrompt").classList.toggle("hidden", state !== "empty");
-      document.getElementById("elementList").classList.toggle("hidden", state !== "sample");
-      document.getElementById("sampleNote").textContent = state === "empty"
-        ? "Open a mod file to explore its assets. Preview controls appear after a mod is loaded."
-        : "Sample only: these controls change the mock preview and never edit files in your mod.";
-      if (state === "empty") {
-        mode.textContent = "Open a mod to start";
-        labels[0].textContent = "Preview canvas";
-        labels[1].textContent = "Open a mod file to start";
-      } else if (state === "assets") {
-        mode.textContent = "Asset preview";
-        labels[0].textContent = "Mod asset preview";
-        labels[1].textContent = "Read-only; no changes saved";
-      } else {
-        mode.textContent = "Sample HUD";
-        labels[0].textContent = "Sample HUD preview";
-        labels[1].textContent = "This mockup does not edit the mod";
-      }
+      document.getElementById("elementList").classList.add("hidden");
+      document.getElementById("sampleNote").classList.add("hidden");
+      document.getElementById("assetReadOnly").classList.toggle("hidden", state === "empty");
+      document.getElementById("workspaceFileLabel").textContent = state === "empty" ? "Open a mod to get started" : (loadedPackage?.file?.name || "Package loaded");
+      labels[0].textContent = state === "empty" ? "Workspace" : "Asset preview";
+      labels[1].textContent = state === "empty" ? "Open a mod file to get started" : "Choose a file from the library";
     };
+
     setCanvasState("empty");
     selectElement("abilities");
   </script>
