@@ -80,8 +80,8 @@
     .asset-row.selected { background: #30262d; border-color: #614754; }
     .asset-kind { width: 31px; height: 25px; flex: 0 0 31px; display: grid; place-items: center; border: 1px solid #423d44; border-radius: 6px; background: #242126; color: var(--accent); font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
     .asset-details { min-width: 0; flex: 1; }
-    .asset-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dfe7; font-size: 10px; font-weight: 650; }
-    .asset-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); font-size: 8px; margin-top: 3px; }
+    .asset-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dfe7; font-size: 10px; font-weight: 650; }
+    .asset-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); font-size: 8px; margin-top: 3px; }
     .asset-size { flex: 0 0 auto; color: var(--soft); font-size: 8px; font-variant-numeric: tabular-nums; }
     .asset-search { width: 100%; margin: 3px 0 9px; padding: 8px 9px; border: 1px solid #403a42; border-radius: 7px; outline: none; color: var(--text); background: #211f23; font-size: 10px; }
     .asset-search:focus { border-color: #765261; }
@@ -123,6 +123,7 @@
     .empty-note { color: var(--soft); font-size: 9px; }
     .asset-overlay { position: absolute; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse at center, #29242c, #151316 72%); }
     .game-preview.asset-mode .asset-overlay { display: flex; }
+    .asset-overlay.is-visible { display: flex !important; }
     .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
     .asset-viewer-title { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dce5; font-size: 11px; font-weight: 650; }
     .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; }
@@ -946,6 +947,9 @@
       document.getElementById("inspectTag").textContent = `TEX ${dimensions}`;
       document.getElementById("selectedPath").textContent = `${image.naturalWidth} × ${image.naturalHeight} · native PNG preview · ${preview.texturePath}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${dimensions}`;
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = `TEX preview · ${dimensions}`;
     };
     const showTexturePreview = async (bytes, entry, request) => {
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
@@ -957,12 +961,18 @@
       document.getElementById("inspectTag").textContent = `TEX ${preview.width}×${preview.height}`;
       document.getElementById("selectedPath").textContent = `${preview.width} × ${preview.height} · format ${preview.format} · ${preview.mipCount} mip${preview.mipCount === 1 ? "" : "s"} · ${entry.displayPath || entry.path}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${preview.width}×${preview.height}`;
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = `TEX preview · ${preview.width}×${preview.height}`;
     };
     const selectPackageEntry = async (entry, row) => {
       const request = ++previewRequest;
       document.getElementById("workspaceFileLabel").textContent = entry.displayPath || entry.path;
       document.querySelectorAll(".asset-row").forEach((node) => node.classList.toggle("selected", node === row));
       document.getElementById("gamePreview").classList.add("asset-mode");
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = "Loading selected asset…";
       document.getElementById("visualControls").classList.add("hidden");
       document.getElementById("assetReadOnly").classList.remove("hidden");
       document.getElementById("inspectEyebrow").textContent = entry.format === "wad-chunk" ? "WAD asset" : "Package entry";
@@ -994,6 +1004,8 @@
             const magic = [...data.subarray(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ").toUpperCase();
             message.textContent = `${entry.assetType} · ${entry.compressionName} · ${prettyBytes(entry.size)} · header ${magic}. This entry is opened and identified, but it does not have an image preview.`;
             message.classList.remove("hidden");
+            const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+            if (previewLabel) previewLabel.textContent = "This WAD entry has no image preview";
           }
           return;
         }
@@ -1198,6 +1210,7 @@
       if (view === "elements") {
         previewRequest++;
         document.getElementById("gamePreview").classList.remove("asset-mode");
+        document.getElementById("assetOverlay").classList.remove("is-visible");
         document.getElementById("assetReadOnly").classList.add("hidden");
         document.getElementById("visualControls").classList.toggle("hidden", !loadedPackage);
         document.getElementById("inspectEyebrow").textContent = "Selected element";
@@ -1206,6 +1219,7 @@
       } else if (loadedPackage) {
         previewRequest++;
         document.getElementById("gamePreview").classList.add("asset-mode");
+        document.getElementById("assetOverlay").classList.add("is-visible");
         document.getElementById("assetReadOnly").classList.add("hidden");
       }
     };
@@ -1457,6 +1471,7 @@
     });
     const setCanvasState = (state) => {
       const labels = document.querySelectorAll(".canvas-label span");
+      document.getElementById("assetOverlay").classList.toggle("is-visible", state === "assets");
       document.getElementById("visualControls").classList.add("hidden");
       document.getElementById("startPrompt").classList.toggle("hidden", state !== "empty");
       document.getElementById("elementList").classList.add("hidden");
