@@ -23,11 +23,8 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
-
-      - name: Build executable without installer
-        run: cargo tauri build --no-bundle
+      - name: Compile Sable executable
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
 
       - name: Upload executable
         uses: actions/upload-artifact@v4
