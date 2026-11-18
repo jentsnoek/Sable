@@ -26,6 +26,7 @@ The source package is selected through the native file dialog. The workspace par
 ### Project structure
 
 - app/index.html and app/theme.css: shared browser and desktop interface.
+- app/model-preview.js: SKN geometry parsing and WebGL mesh viewer. It shows the untextured bind-pose mesh; skeleton animation and materials are not applied.
 - src-tauri/src/workspace.rs: native mod import, TEX conversion, repacking, and File Explorer opening.
 - src-tauri/capabilities/default.json: narrow Tauri permissions for selected paths.
 - .github/workflows/build-windows-exe.yml: Windows build and downloadable executable artifact.

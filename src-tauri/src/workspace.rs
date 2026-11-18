@@ -291,52 +291,121 @@ fn preview_package_texture_blocking(
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WadTextureEntry {
+pub struct WadAssetEntry {
     hash: String,
     size: usize,
+    asset_type: String,
+    extension: String,
 }
 
 #[tauri::command]
-pub async fn inspect_package_wad_textures(
+pub async fn inspect_package_wad_assets(
     source_path: String,
     wad_path: String,
-) -> Result<Vec<WadTextureEntry>, String> {
+) -> Result<Vec<WadAssetEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        inspect_package_wad_textures_blocking(source_path, wad_path)
+        inspect_package_wad_assets_blocking(source_path, wad_path)
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
-fn inspect_package_wad_textures_blocking(
+fn inspect_package_wad_assets_blocking(
     source_path: String,
     wad_path: String,
-) -> Result<Vec<WadTextureEntry>, String> {
+) -> Result<Vec<WadAssetEntry>, String> {
     let workspace = ensure_preview_workspace(&source_path)?;
     let workspace_manifest = read_workspace_manifest(&workspace)?;
     let project_dir = safe_child(&workspace, &workspace_manifest.project_dir)?;
-    let wad_file = find_wad_file(&project_dir, &wad_path)?;
+    let wad_file = find_project_file(&project_dir, &wad_path)?;
     let mut wad = Wad::mount(
         File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
     )
     .map_err(|error| format!("Could not read WAD archive: {error}"))?;
 
     let chunks: Vec<_> = wad.chunks().iter().copied().collect();
-    let mut textures = Vec::new();
+    let mut assets = Vec::new();
     for chunk in chunks {
         if chunk.uncompressed_size() > 256 * 1024 * 1024 {
             continue;
         }
         if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
-            if bytes.starts_with(b"TEX\0") {
-                textures.push(WadTextureEntry {
+            let kind = if bytes.starts_with(b"TEX\0") {
+                Some(("Textures", "tex"))
+            } else if bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) {
+                Some(("Models & animation", "skn"))
+            } else {
+                None
+            };
+            if let Some((asset_type, extension)) = kind {
+                assets.push(WadAssetEntry {
                     hash: format!("{:016x}", chunk.path_hash()),
                     size: bytes.len(),
+                    asset_type: asset_type.to_owned(),
+                    extension: extension.to_owned(),
                 });
             }
         }
     }
-    Ok(textures)
+    Ok(assets)
+}
+
+#[tauri::command]
+pub async fn read_package_model(
+    source_path: String,
+    entry_path: String,
+) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !entry_path.to_ascii_lowercase().ends_with(".skn") {
+            return Err("Choose an SKN model to preview.".to_owned());
+        }
+        let workspace = ensure_preview_workspace(&source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let model_file = find_project_file(&project_dir, &entry_path)?;
+        if fs::metadata(&model_file).map_err(|error| error.to_string())?.len() > 32 * 1024 * 1024 {
+            return Err("This model is over the 32 MB preview limit.".to_owned());
+        }
+        let bytes = fs::read(&model_file).map_err(|error| format!("Could not read SKN model: {error}"))?;
+        if !bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) {
+            return Err("This file is not a League SKN model.".to_owned());
+        }
+        Ok(bytes)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn read_package_wad_model(
+    source_path: String,
+    wad_path: String,
+    hash: String,
+) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let workspace = ensure_preview_workspace(&source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let wad_file = find_project_file(&project_dir, &wad_path)?;
+        let mut wad = Wad::mount(
+            File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
+        )
+        .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+        let path_hash: WadHash = hash.parse().map_err(|_| "Invalid model hash.".to_owned())?;
+        let chunk = wad.chunks().get(path_hash).copied()
+            .ok_or_else(|| "This WAD no longer contains the selected model.".to_owned())?;
+        if chunk.uncompressed_size() > 32 * 1024 * 1024 {
+            return Err("This model is over the 32 MB preview limit.".to_owned());
+        }
+        let bytes = wad.load_chunk_decompressed(&chunk)
+            .map_err(|error| format!("Could not decompress WAD model: {error}"))?;
+        if !bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) {
+            return Err("This WAD entry is not an SKN model.".to_owned());
+        }
+        Ok(bytes.to_vec())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn ensure_preview_workspace(source_path: &str) -> Result<PathBuf, String> {
@@ -389,7 +458,7 @@ fn normalize_package_path(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, String> {
+fn find_project_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, String> {
     let relative = normalize_package_path(requested_path);
     if let Ok(candidate) = safe_child(project_dir, &relative) {
         if candidate.is_file() {
@@ -400,12 +469,12 @@ fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, St
     let basename = Path::new(&relative)
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| format!("Invalid WAD path: {requested_path}"))?;
+        .ok_or_else(|| format!("Invalid package path: {requested_path}"))?;
     let mut matches = Vec::new();
     collect_files_named(project_dir, basename, &mut matches)
-        .map_err(|error| format!("Could not search imported WAD files: {error}"))?;
+        .map_err(|error| format!("Could not search imported files: {error}"))?;
     match matches.len() {
-        0 => Err(format!("Could not find WAD archive {requested_path} in the imported project.")),
+        0 => Err(format!("Could not find {requested_path} in the imported project.")),
         1 => Ok(matches.remove(0)),
         _ => {
             let suffix = format!("/{}", relative);
@@ -415,7 +484,7 @@ fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, St
             {
                 Ok(exact.clone())
             } else {
-                Err(format!("More than one imported WAD matches {requested_path}."))
+                Err(format!("More than one imported file matches {requested_path}."))
             }
         }
     }
@@ -452,7 +521,7 @@ fn preview_wad_texture(
         .map_err(|_| format!("This WAD texture has an invalid hash: {display_path}"))?;
     let workspace_manifest = read_workspace_manifest(workspace)?;
     let project_dir = safe_child(workspace, &workspace_manifest.project_dir)?;
-    let wad_file = find_wad_file(&project_dir, wad_relative)?;
+    let wad_file = find_project_file(&project_dir, wad_relative)?;
     let mut wad = Wad::mount(
         File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
     )

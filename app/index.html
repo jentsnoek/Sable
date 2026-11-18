@@ -127,6 +127,9 @@
     .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
     .asset-viewer-title { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dce5; font-size: 11px; font-weight: 650; }
     .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; background-color: #f2eff3; background-image: linear-gradient(45deg, #b9b4bc 25%, transparent 25%, transparent 75%, #b9b4bc 75%), linear-gradient(45deg, #b9b4bc 25%, #f2eff3 25%, #f2eff3 75%, #b9b4bc 75%); background-position: 0 0, 12px 12px; background-size: 24px 24px; }
+    .asset-model { flex: 1 1 auto; min-height: 0; width: 100%; border: 1px solid #51424c; border-radius: 7px; background: #171319; cursor: grab; touch-action: none; }
+    .asset-model:active { cursor: grabbing; }
+    .model-hint { flex: 0 0 auto; color: var(--muted); font-size: 10px; text-align: center; }
     .asset-message { max-width: 390px; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.6; }
     .map { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #40554a 0, #2c423a 25%, #21372f 53%, #172723 100%); }
     .map::before { content: ""; position: absolute; width: 50%; height: 75%; left: 25%; top: 14%; transform: rotate(-30deg); border: 2px solid #86947b30; border-radius: 40% 60% 55% 45%; background: linear-gradient(135deg, #77795018, #1b282323 45%, #9e94601a); box-shadow: 0 0 0 38px #111a1733, 0 0 0 76px #b6ad6820; }
@@ -317,7 +320,7 @@
           <div class="canvas-label"><span>Preview</span><span>Select a file from the library</span></div>
           <div class="game-preview no-package" id="gamePreview">
             <div class="empty-canvas" id="emptyCanvas"><span class="welcome-logo-frame"><img class="welcome-logo" src="" alt=""></span><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a .fantome or .modpkg to browse its files, preview supported assets, and unpack a working copy.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod</button><div class="empty-note">Your original download stays untouched.</div></div>
-            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
+            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><canvas id="assetModel" class="asset-model hidden" aria-label="Rotatable 3D model preview"></canvas><div id="modelHint" class="model-hint hidden">Untextured mesh · drag to rotate · scroll to zoom · double-click to reset</div><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
           </div>
         </div>
       </section>
@@ -340,6 +343,7 @@
     </main>
   </div>
   <div class="toast" id="toast"></div>
+  <script src="model-preview.js"></script>
   <script>
     const elementNames = { player: "Player stats", abilities: "Ability bar", items: "Item slots", minimap: "Minimap", score: "Match score" };
     const presets = {};
@@ -526,6 +530,7 @@
     const identifyWadAsset = (bytes) => {
       const magic = new TextDecoder().decode(bytes.subarray(0, 4));
       if (magic === "TEX\0" || magic === "DDS ") return "Textures";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return "Models & animation";
       if (["SKN\0", "SKL\0", "ANM\0", "SCB\0", "SCO\0"].includes(magic)) return "Models & animation";
       if (magic === "PROP" || magic === "PTCH") return "Game data";
       if (magic === "BKHD" || magic === "RIFF" || magic === "WPK\0") return "Audio";
@@ -536,19 +541,18 @@
     const scanWadEntries = async (bytes, wad, request, wadPath) => {
       if (isDesktopApp && loadedPackage?.nativePath) {
         setStatus("Finding TEX files in the WAD…");
-        const textures = await window.__TAURI__.core.invoke("inspect_package_wad_textures", {
+        const assets = await window.__TAURI__.core.invoke("inspect_package_wad_assets", {
           sourcePath: loadedPackage.nativePath,
           wadPath
         });
         if (request !== previewRequest) return false;
-        const byHash = new Map(textures.map((item) => [String(item.hash).toLowerCase(), item]));
+        const byHash = new Map(assets.map((item) => [String(item.hash).toLowerCase(), item]));
         wad.entries.forEach((entry) => {
-          const texture = byHash.get(entry.hash.toLowerCase());
-          if (texture) {
-            const texturePath = `0x${entry.hash}.tex`;
-            entry.assetType = "Textures";
-            entry.path = texturePath;
-            entry.displayPath = `${wadPath} / ${texturePath}`;
+          const asset = byHash.get(entry.hash.toLowerCase());
+          if (asset) {
+            entry.assetType = asset.assetType;
+            entry.path = `0x${entry.hash}.${asset.extension}`;
+            entry.displayPath = `${wadPath} / ${entry.path}`;
             entry.wad = wadPath;
           } else {
             entry.assetType = "Other WAD entries";
@@ -843,7 +847,24 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["HUD & interface", "Champions", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
+    const assetGroupOrder = ["HUD", "Champions", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
+    const hudGroupFor = (sourcePath) => {
+      const path = sourcePath.replace(/\\/g, "/").toLowerCase();
+      const parts = path.split("/");
+      const championIndex = parts.indexOf("champions");
+      if (championIndex >= 0 && parts[championIndex + 1]) return "HUD · Champion UI";
+      if (/loadingscreen|loadscreen/.test(path)) return "HUD · Loading screens";
+      if (/scoreboard|neutral|objective|dragonui|grubbies|atakhan/.test(path)) return "HUD · Scoreboard & objectives";
+      if (/practicetool/.test(path)) return "HUD · Practice tool";
+      if (/itemshop/.test(path)) return "HUD · Item shop";
+      if (/inventory|quickbuy|quicbuy|purchasebutton|buildtree|item_selected|rec_item|filter_highlight/.test(path)) return "HUD · Inventory & quick buy";
+      if (/popup|tooltip|deathrecap|reconnect|surrender/.test(path)) return "HUD · Popups & tooltips";
+      if (/ability|perk|clarity|hudatlas|hudreset|statspanel|healthbar|levelup/.test(path)) return "HUD · Abilities & stats";
+      if (/chat|voice|radialwheel|contextwheel|menu|options/.test(path)) return "HUD · Menus & chat";
+      if (/magic|ray|particle/.test(path)) return "HUD · Magic & particles";
+      if (/border|glow|highlight|rectangle|tab_underline|container/.test(path)) return "HUD · Borders & highlights";
+      return "HUD · Other interface";
+    };
     const assetGroupFor = (entry) => {
       const path = (entry.path + " " + (entry.displayPath || "") + " " + (entry.wad || "")).replace(/\\/g, "/").toLowerCase();
       const parts = path.split("/").map((part) => part.trim()).filter(Boolean);
@@ -853,8 +874,11 @@
         if (parts[i] === "champions" || parts[i] === "characters") { champion = parts[i + 1].replace(/\.wad(?:\.client)?$/i, ""); break; }
       }
       const titleCase = (value) => value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      if (entry.format === "wad-chunk" && entry.assetType === "Models & animation") {
+        return champion ? "Champions · " + titleCase(champion) + " · Models" : "Models & animation";
+      }
       const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
-      if (isHud) return champion ? "HUD & interface · " + titleCase(champion) : "HUD & interface";
+      if (isHud) return hudGroupFor(entry.path);
       if (parts.some((part) => part.includes("summonersrift") || part === "map" || part === "maps" || part.includes("terrain") || part.startsWith("map.wad")) || path.includes("map.wad")) return "Maps & environment";
       if (champion) return "Champions · " + titleCase(champion);
       if ([".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension) || parts.some((part) => part === "audio" || part === "sounds" || part.startsWith("audio.wad") || part.startsWith("sfx.wad"))) return "Audio";
@@ -877,8 +901,8 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "TEX files are marked TEX. Search .tex or open a WAD to inspect its contents; some WAD entries use hashed names."
-        : "TEX files are marked and their groups open automatically. Search .tex to find them.";
+        ? "TEX textures and SKN models are marked by type. Some WAD entries use hashed names."
+        : "Files are grouped by their role. Open a TEX texture or SKN model to preview it.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
@@ -901,7 +925,7 @@
         const containsTexture = groupEntries.some((entry) =>
           fileExtension(entry.displayPath || entry.path) === ".tex" || entry.assetType === "Textures"
         );
-        group.open = groupEntries.length <= 5 || containsTexture;
+        group.open = entries.length <= 30 && (groupEntries.length <= 5 || containsTexture);
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -926,6 +950,11 @@
     const readPackageEntry = (entry, maxBytes = MAX_PREVIEW_BYTES) => loadedPackage.format === "modpkg" || entry.format === "modpkg"
       ? readModpkgChunk(loadedPackage.buffer, entry, maxBytes)
       : readZipEntry(loadedPackage.buffer, entry, maxBytes);
+    const clearModelPreview = () => {
+      window.SableModelPreview.clear();
+      document.getElementById("assetModel").classList.add("hidden");
+      document.getElementById("modelHint").classList.add("hidden");
+    };
     const repairTransparentTexturePreview = async (image) => {
       try {
         const canvas = document.createElement("canvas");
@@ -1019,6 +1048,24 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = `TEX preview · ${preview.width}×${preview.height}`;
     };
+    const showModelPreview = (bytes, entry, request) => {
+      if (request !== previewRequest) return;
+      const canvas = document.getElementById("assetModel");
+      const message = document.getElementById("assetMessage");
+      const image = document.getElementById("assetImage");
+      image.classList.add("hidden");
+      message.classList.add("hidden");
+      canvas.classList.remove("hidden");
+      document.getElementById("modelHint").classList.remove("hidden");
+      const mesh = window.SableModelPreview.show(canvas, bytes);
+      document.getElementById("inspectTag").textContent = "3D SKN";
+      document.getElementById("selectedPath").textContent = `${mesh.sourceVertices.toLocaleString()} vertices · ${mesh.triangles.toLocaleString()} triangles · ${mesh.parts} parts · ${entry.displayPath || entry.path}`;
+      document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · 3D model`;
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = "3D mesh preview";
+      setStatus("3D model ready");
+    };
     const selectPackageEntry = async (entry, row) => {
       const request = ++previewRequest;
       document.getElementById("workspaceFileLabel").textContent = entry.displayPath || entry.path;
@@ -1036,6 +1083,7 @@
       document.getElementById("selectedPath").textContent = `${prettyBytes(entry.size)} · ${displayPath}`;
       document.getElementById("assetPreviewTitle").textContent = displayPath;
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
+      clearModelPreview();
       image.classList.add("hidden"); image.removeAttribute("src");
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
@@ -1046,6 +1094,23 @@
           setStatus("TEX preview ready");
           return;
         }
+        if (isDesktopApp && loadedPackage?.nativePath && entry.format !== "wad-chunk" && fileExtension(entry.path) === ".skn") {
+          const bytes = await window.__TAURI__.core.invoke("read_package_model", {
+            sourcePath: loadedPackage.nativePath,
+            entryPath: entry.displayPath || entry.path
+          });
+          showModelPreview(new Uint8Array(bytes), entry, request);
+          return;
+        }
+        if (isDesktopApp && loadedPackage?.nativePath && entry.format === "wad-chunk" && entry.assetType === "Models & animation") {
+          const bytes = await window.__TAURI__.core.invoke("read_package_wad_model", {
+            sourcePath: loadedPackage.nativePath,
+            wadPath: currentWadView.sourceEntry.path,
+            hash: entry.hash
+          });
+          showModelPreview(new Uint8Array(bytes), entry, request);
+          return;
+        }
         if (entry.format === "wad-chunk") {
           if (!currentWadView) throw new Error("Go back to the package and open the WAD again.");
           message.textContent = `Opening ${entry.assetType.toLowerCase()} entry.`; message.classList.remove("hidden");
@@ -1054,6 +1119,8 @@
           if (data.length >= 4 && data[0] === 0x54 && data[1] === 0x45 && data[2] === 0x58 && data[3] === 0) {
             await showTexturePreview(data, entry, request);
             setStatus("TEX preview ready");
+          } else if (data.length >= 4 && new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true) === 0x00112233) {
+            showModelPreview(data, entry, request);
           } else {
             const magic = [...data.subarray(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ").toUpperCase();
             message.textContent = `${entry.assetType} · ${entry.compressionName} · ${prettyBytes(entry.size)} · header ${magic}. This entry is opened and identified, but it does not have an image preview.`;
@@ -1093,6 +1160,10 @@
 
         const data = await readPackageEntry(entry);
         if (request !== previewRequest) return;
+        if (fileExtension(entry.path) === ".skn") {
+          showModelPreview(data, entry, request);
+          return;
+        }
         if (fileExtension(entry.path) === ".tex") {
           await showTexturePreview(data, entry, request);
           setStatus("TEX preview ready");
@@ -1108,6 +1179,7 @@
         image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
       } catch (error) {
         if (request !== previewRequest) return;
+        clearModelPreview();
         message.textContent = error.message || "Sable could not open this package entry.";
         message.classList.remove("hidden");
       }
@@ -1262,6 +1334,7 @@
       document.getElementById("assetsView").classList.toggle("hidden", view !== "assets");
       setCanvasState(!loadedPackage ? "empty" : view === "elements" ? "sample" : "assets");
       if (view === "elements") {
+        clearModelPreview();
         previewRequest++;
         document.getElementById("gamePreview").classList.remove("asset-mode");
         document.getElementById("assetOverlay").classList.remove("is-visible");
@@ -1280,6 +1353,7 @@
     const returnToPackageFiles = () => {
       if (!loadedPackage) return;
       previewRequest++;
+      clearModelPreview();
       currentWadView = null;
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
       document.getElementById("wadBack").classList.add("hidden");
@@ -1300,6 +1374,7 @@
     const openModFile = async (file) => {
       if (!file) return;
       previewRequest++;
+      clearModelPreview();
       setStatus("Reading package…");
       document.getElementById("openFile").disabled = true;
       document.getElementById("unpackBtn").disabled = true;
@@ -1351,8 +1426,8 @@
         document.getElementById("assetImage").classList.add("hidden");
         document.getElementById("assetMessage").classList.remove("hidden");
         document.getElementById("assetMessage").textContent = format === "modpkg"
-          ? "Choose an asset group. TEX entries open as image previews; entries are organized by type and target WAD."
-          : "Choose an asset group. Open a WAD archive to browse its internal entries, or select a supported image to preview it.";
+          ? "Choose an asset group. TEX files show image previews; SKN models show rotatable 3D meshes."
+          : "Choose an asset group. Open a WAD archive to browse its contents, including TEX textures and SKN models.";
         setStatus(`${format.toUpperCase()} loaded`);
         toast(`Opened ${file.name} · ${archive.entries.length} entries`);
       } catch (error) {

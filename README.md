@@ -13,6 +13,8 @@ The app uses the WebView2 runtime available on most current Windows installation
 ## What works
 
 - Open and browse .fantome and .modpkg packages.
+- Browse HUD assets in focused groups such as shop, inventory, scoreboard, abilities, champion UI, and effects.
+- Rotate and zoom untextured 3D previews of SKN skin meshes, including SKN files inside WAD archives.
 - Browse package contents by file type and detected paths.
 - Unpack a package into a League Toolkit project you can edit in File Explorer.
 - Convert TEX textures into PNG previews in a separate Textures folder.
