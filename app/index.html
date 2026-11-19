@@ -567,35 +567,37 @@
     const scanWadEntries = async (bytes, wad, request, wadPath) => {
       if (isDesktopApp && loadedPackage?.nativePath) {
         setStatus("Classifying WAD assets…");
-        const assets = await window.__TAURI__.core.invoke("inspect_package_wad_assets", {
-          sourcePath: loadedPackage.nativePath,
-          wadPath
-        });
-        if (request !== previewRequest) return false;
-        const byHash = new Map(assets.map((item) => [String(item.hash).toLowerCase(), item]));
-        wad.entries.forEach((entry) => {
-          const asset = byHash.get(entry.hash.toLowerCase());
-          if (asset) {
-            entry.assetType = asset.assetType;
-            entry.path = asset.path || `0x${entry.hash}.${asset.extension}`;
-            entry.displayPath = `${wadPath} / ${entry.path}`;
-            entry.wad = wadPath;
-          } else {
-            entry.assetType = "Other WAD entries";
-          }
-        });
-        return true;
+        try {
+          const assets = await window.__TAURI__.core.invoke("inspect_package_wad_assets", {
+            sourcePath: loadedPackage.nativePath,
+            wadPath
+          });
+          if (request !== previewRequest) return false;
+          const byHash = new Map(assets.map((item) => [String(item.hash).toLowerCase(), item]));
+          wad.entries.forEach((entry) => {
+            const asset = byHash.get(entry.hash.toLowerCase());
+            if (asset) {
+              entry.assetType = asset.assetType;
+              entry.path = asset.path || `0x${entry.hash}.${asset.extension}`;
+              entry.displayPath = `${wadPath} / ${entry.path}`;
+              entry.wad = wadPath;
+            } else {
+              entry.assetType = "Other WAD entries";
+            }
+          });
+          return true;
+        } catch (error) {
+          console.warn("Native WAD classification failed; trying the built-in reader.", error);
+          setStatus("Using the built-in WAD reader");
+        }
       }
-      const canReadZstd = (() => { try { new DecompressionStream("zstd"); return true; } catch { return false; } })();
-      if (!canReadZstd && wad.entries.some((entry) => entry.compression === 3)) {
-        wad.entries.forEach((entry) => { entry.assetType = "Unclassified WAD entries"; });
-        return false;
-      }
+      let readableEntries = 0;
       for (let i = 0; i < wad.entries.length; i++) {
         if (request !== previewRequest) return false;
         const entry = wad.entries[i];
         try {
           const assetBytes = await readWadChunk(bytes, entry);
+          readableEntries++;
           entry.assetType = identifyWadAsset(assetBytes);
           const extension = identifyWadExtension(assetBytes);
           entry.path = `0x${entry.hash}${extension}`;
@@ -608,7 +610,7 @@
           await new Promise((resolve) => requestAnimationFrame(resolve));
         }
       }
-      return true;
+      return readableEntries > 0;
     };
     const decodeTex = (input) => {
       const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
@@ -684,6 +686,83 @@
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("Sable could not turn this TEX texture into a preview image.");
       return { blob, width: texture.width, height: texture.height, format: texture.format, mipCount: texture.mipCount };
+    };
+    const decodeDds = (input) => {
+      const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+      if (bytes.length < 128 || String.fromCharCode(...bytes.subarray(0, 4)) !== "DDS ") throw new Error("This file does not contain a complete DDS texture.");
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (view.getUint32(4, true) !== 124 || view.getUint32(76, true) !== 32) throw new Error("This DDS texture has an invalid header.");
+      const height = view.getUint32(12, true); const width = view.getUint32(16, true);
+      if (!width || !height || width * height > 20000000) throw new Error("This DDS texture has dimensions Sable cannot safely preview.");
+      const fourCC = String.fromCharCode(...bytes.subarray(84, 88));
+      let format = fourCC; let dataOffset = 128;
+      if (fourCC === "DX10") {
+        if (bytes.length < 148) throw new Error("This DDS DX10 header is incomplete.");
+        const dxgi = view.getUint32(128, true);
+        format = dxgi >= 70 && dxgi <= 72 ? "DXT1" : dxgi >= 73 && dxgi <= 75 ? "DXT3" : dxgi >= 76 && dxgi <= 78 ? "DXT5" : "DXGI " + dxgi;
+        dataOffset = 148;
+      }
+      if (!["DXT1", "DXT3", "DXT5"].includes(format)) throw new Error(`Sable cannot preview DDS format ${format} yet.`);
+      const blocksWide = Math.ceil(width / 4); const blocksHigh = Math.ceil(height / 4);
+      const bytesPerBlock = format === "DXT1" ? 8 : 16;
+      if (dataOffset + blocksWide * blocksHigh * bytesPerBlock > bytes.length) throw new Error("The DDS texture pixels are incomplete.");
+      const pixels = new Uint8ClampedArray(width * height * 4);
+      const color565 = (value) => {
+        const r = (value >> 11) & 31; const g = (value >> 5) & 63; const b = value & 31;
+        return [(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)];
+      };
+      for (let by = 0; by < blocksHigh; by++) for (let bx = 0; bx < blocksWide; bx++) {
+        const block = dataOffset + (by * blocksWide + bx) * bytesPerBlock;
+        const hasExplicitAlpha = format === "DXT3"; const hasInterpolatedAlpha = format === "DXT5";
+        const colorBlock = block + (format === "DXT1" ? 0 : 8);
+        const c0 = view.getUint16(colorBlock, true); const c1 = view.getUint16(colorBlock + 2, true);
+        const first = color565(c0); const second = color565(c1);
+        const palette = [first, second];
+        if (format !== "DXT1" || c0 > c1) {
+          palette.push(first.map((channel, i) => Math.round((2 * channel + second[i]) / 3)));
+          palette.push(first.map((channel, i) => Math.round((channel + 2 * second[i]) / 3)));
+        } else {
+          palette.push(first.map((channel, i) => Math.round((channel + second[i]) / 2)));
+          palette.push([0, 0, 0]);
+        }
+        const colorIndices = view.getUint32(colorBlock + 4, true);
+        const alphaPalette = [bytes[block], bytes[block + 1]];
+        if (hasInterpolatedAlpha) {
+          if (alphaPalette[0] > alphaPalette[1]) {
+            for (let i = 1; i <= 6; i++) alphaPalette.push(Math.round(((7 - i) * alphaPalette[0] + i * alphaPalette[1]) / 7));
+          } else {
+            for (let i = 1; i <= 4; i++) alphaPalette.push(Math.round(((5 - i) * alphaPalette[0] + i * alphaPalette[1]) / 5));
+            alphaPalette.push(0, 255);
+          }
+        }
+        for (let py = 0; py < 4; py++) for (let px = 0; px < 4; px++) {
+          const x = bx * 4 + px; const y = by * 4 + py; if (x >= width || y >= height) continue;
+          const pixel = py * 4 + px; const colorIndex = (colorIndices >>> (pixel * 2)) & 3;
+          const target = (y * width + x) * 4; const color = palette[colorIndex];
+          pixels[target] = color[0]; pixels[target + 1] = color[1]; pixels[target + 2] = color[2];
+          if (hasExplicitAlpha) {
+            const packedAlpha = bytes[block + (pixel >> 1)];
+            pixels[target + 3] = ((packedAlpha >> ((pixel & 1) * 4)) & 15) * 17;
+          } else if (hasInterpolatedAlpha) {
+            const bit = pixel * 3; const byte = bit >> 3; const shift = bit & 7;
+            const packedAlpha = bytes[block + 2 + byte] | (bytes[block + 3 + byte] << 8);
+            pixels[target + 3] = alphaPalette[(packedAlpha >> shift) & 7];
+          } else {
+            pixels[target + 3] = c0 <= c1 && colorIndex === 3 ? 0 : 255;
+          }
+        }
+      }
+      return { width, height, pixels, format };
+    };
+    const ddsToPng = async (input) => {
+      const texture = decodeDds(input);
+      const canvas = document.createElement("canvas"); canvas.width = texture.width; canvas.height = texture.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Sable could not create the DDS preview canvas.");
+      const imageData = context.createImageData(texture.width, texture.height); imageData.data.set(texture.pixels); context.putImageData(imageData, 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Sable could not turn this DDS texture into a preview image.");
+      return { blob, width: texture.width, height: texture.height, format: texture.format };
     };
     const decodeMessagePack = (bytes) => {
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -1099,6 +1178,23 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = `TEX preview · ${preview.width}×${preview.height}`;
     };
+    const showDdsPreview = async (bytes, entry, request) => {
+      const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
+      message.textContent = "Decoding DDS texture preview."; message.classList.remove("hidden");
+      const preview = await ddsToPng(bytes);
+      if (request !== previewRequest) return;
+      currentAssetUrl = URL.createObjectURL(preview.blob);
+      image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
+      await image.decode();
+      if (request !== previewRequest) return;
+      fitAssetPreviewImage(image);
+      document.getElementById("inspectTag").textContent = `DDS ${preview.width}×${preview.height}`;
+      document.getElementById("selectedPath").textContent = `${preview.width} × ${preview.height} · ${preview.format} · ${entry.displayPath || entry.path}`;
+      document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${preview.width}×${preview.height}`;
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = `DDS preview · ${preview.width}×${preview.height}`;
+    };
     const showModelPreview = (bytes, entry, request, bundle = null) => {
       if (request !== previewRequest) return;
       const canvas = document.getElementById("assetModel");
@@ -1280,10 +1376,32 @@
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
       try {
-        if (isDesktopApp && loadedPackage?.nativePath && ([".tex", ".dds"].includes(fileExtension(entry.path)) || (entry.format === "wad-chunk" && entry.assetType === "Textures"))) {
+        if (entry.format === "wad-chunk" && (entry.assetType === "Textures" || [".tex", ".dds"].includes(fileExtension(entry.path)))) {
+          if (!currentWadView) throw new Error("Go back to the package and open the WAD again.");
+          const data = await readWadChunk(currentWadView.bytes, entry);
+          if (request !== previewRequest) return;
+          if (data[0] === 0x44 && data[1] === 0x44 && data[2] === 0x53 && data[3] === 0x20) {
+            await showDdsPreview(data, entry, request);
+            setStatus("DDS preview ready");
+          } else if (data[0] === 0x54 && data[1] === 0x45 && data[2] === 0x58 && data[3] === 0) {
+            await showTexturePreview(data, entry, request);
+            setStatus("TEX preview ready");
+          } else {
+            throw new Error("This WAD entry is not a readable DDS or TEX texture.");
+          }
+          return;
+        }
+        if (entry.format !== "wad-chunk" && fileExtension(entry.path) === ".dds") {
+          const data = await readPackageEntry(entry);
+          if (request !== previewRequest) return;
+          await showDdsPreview(data, entry, request);
+          setStatus("DDS preview ready");
+          return;
+        }
+        if (isDesktopApp && loadedPackage?.nativePath && fileExtension(entry.path) === ".tex") {
           await showNativeTexturePreview(entry, request);
           if (request !== previewRequest) return;
-          setStatus(`${fileExtension(entry.path) === ".dds" ? "DDS" : "TEX"} preview ready`);
+          setStatus("TEX preview ready");
           return;
         }
         if (isDesktopApp && loadedPackage?.nativePath && entry.format !== "wad-chunk" && fileExtension(entry.path) === ".skn") {
@@ -1370,7 +1488,7 @@
           const summary = Object.entries(groups).map(([name, count]) => `${name}: ${count}`).join(" · ");
           message.textContent = classified
             ? `${wad.entries.length} WAD entries grouped by detected type (${summary}). Sable opens a skin model automatically when it finds matching rig assets.`
-            : `${wad.entries.length} internal entries indexed. This browser cannot decode Zstandard, so Sable cannot classify or preview compressed entries here.`;
+            : `${wad.entries.length} WAD entries indexed, but Sable could not decode any entries to identify their types. Reopen the WAD after checking its compression support.`;
           message.classList.remove("hidden");
           setStatus(`WAD ${wad.version} · ${wad.entries.length} entries`);
           const models = wad.entries.filter((item) => item.assetType === "Models");
@@ -1415,8 +1533,9 @@
       } catch (error) {
         if (request !== previewRequest) return;
         clearModelPreview();
-        message.textContent = error.message || "Sable could not open this package entry.";
+        message.textContent = typeof error === "string" ? error : error?.message || "Sable could not open this package entry.";
         message.classList.remove("hidden");
+        setStatus("Could not open asset");
       }
     };
     const safeFileSegment = (value) => String(value || "unnamed").replace(/[<>:"|?*\x00-\x1f]/g, "_").replace(/[. ]+$/g, "").slice(0, 120) || "unnamed";
