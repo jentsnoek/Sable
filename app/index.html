@@ -1041,7 +1041,11 @@
       for (const groupName of groupNames) {
         const groupEntries = groups.get(groupName);
         if (!groupEntries?.length) continue;
-        groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        if (groupEntries.every((entry) => entry.format === "wad-chunk" && entry.assetType === "Models")) {
+          groupEntries.sort((a, b) => b.size - a.size || (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        } else {
+          groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        }
         const group = document.createElement("details"); group.className = "asset-group";
         const containsTexture = groupEntries.some((entry) =>
           fileExtension(entry.displayPath || entry.path) === ".tex" || entry.assetType === "Textures"
@@ -1498,17 +1502,14 @@
           wad.entries.forEach((item) => { groups[item.assetType] = (groups[item.assetType] || 0) + 1; });
           const summary = Object.entries(groups).map(([name, count]) => `${name}: ${count}`).join(" · ");
           message.textContent = classified
-            ? `${wad.entries.length} WAD entries grouped by detected type (${summary}). Sable opens a skin model automatically when it finds matching rig assets.`
+            ? `${wad.entries.length} WAD entries grouped by detected type (${summary}). Sable opens the largest skin model automatically.`
             : `${wad.entries.length} WAD entries indexed, but Sable could not decode any entries to identify their types. Reopen the WAD after checking its compression support.`;
           message.classList.remove("hidden");
           setStatus(`WAD ${wad.version} · ${wad.entries.length} entries`);
           const models = wad.entries.filter((item) => item.assetType === "Models");
-          const namedSkinModel = models
-            .filter((item) => /(?:^|\/)(?:characters|champions)\/[^/]+\/skins\//i.test(item.path || ""))
-            .sort((a, b) => (a.path || a.hash).localeCompare(b.path || b.hash, undefined, { numeric: true, sensitivity: "base" }))[0];
-          const hasRigAssets = wad.entries.some((item) => item.assetType === "Skeletons")
-            && wad.entries.some((item) => item.assetType === "Animations");
-          const firstModel = namedSkinModel || (hasRigAssets ? models.sort((a, b) => b.size - a.size)[0] : null);
+          const namedSkinModels = models.filter((item) => /(?:^|\/)(?:characters|champions)\/[^/]+\/skins\//i.test(item.path || ""));
+          const firstModel = (namedSkinModels.length ? namedSkinModels : models)
+            .sort((a, b) => b.size - a.size || (a.path || a.hash).localeCompare(b.path || b.hash, undefined, { numeric: true, sensitivity: "base" }))[0];
           if (firstModel) {
             const modelRow = [...document.querySelectorAll(".asset-row")]
               .find((node) => node.dataset.entryKey === firstModel.hash);
