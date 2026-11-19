@@ -397,12 +397,20 @@ fn inspect_package_wad_assets_blocking(
     let chunks: Vec<_> = wad.chunks().iter().copied().collect();
     let mut assets = Vec::new();
     let mut resolved_paths = HashMap::new();
+    let mut chunk_sizes = HashMap::new();
+    let mut recognized_hashes = std::collections::HashSet::new();
     for chunk in chunks {
         if chunk.uncompressed_size() > 256 * 1024 * 1024 {
             continue;
         }
         if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
-            if bytes.starts_with(b"PROP") || bytes.starts_with(b"PTCH") {
+            let hash = format!("{:016x}", chunk.path_hash());
+            chunk_sizes.insert(hash.clone(), bytes.len());
+            if bytes.starts_with(b"PROP")
+                || bytes.starts_with(b"PTCH")
+                || bytes.starts_with(b"#PROP_")
+                || bytes.starts_with(b"#PTCH_")
+            {
                 for path in extract_wad_path_references(&bytes) {
                     let referenced_hash = WadHash::hash_str(&path);
                     if wad.chunks().contains(referenced_hash) {
@@ -412,7 +420,7 @@ fn inspect_package_wad_assets_blocking(
             }
             let kind = classify_wad_asset(&bytes);
             if let Some((asset_type, extension)) = kind {
-                let hash = format!("{:016x}", chunk.path_hash());
+                recognized_hashes.insert(hash.clone());
                 assets.push(WadAssetEntry {
                     path: resolved_paths.get(&hash).cloned(),
                     hash,
@@ -427,6 +435,19 @@ fn inspect_package_wad_assets_blocking(
         if asset.path.is_none() {
             asset.path = resolved_paths.get(&asset.hash).cloned();
         }
+    }
+    for (hash, path) in &resolved_paths {
+        if recognized_hashes.contains(hash) {
+            continue;
+        }
+        let Some((asset_type, extension)) = classify_wad_asset_path(path) else { continue };
+        assets.push(WadAssetEntry {
+            path: Some(path.clone()),
+            hash: hash.clone(),
+            size: chunk_sizes.get(hash).copied().unwrap_or_default(),
+            asset_type: asset_type.to_owned(),
+            extension: extension.to_owned(),
+        });
     }
     Ok(assets)
 }
@@ -477,6 +498,9 @@ fn classify_wad_asset(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     }
     if bytes.starts_with(b"SCB\0") { return Some(("Static models", "scb")); }
     if bytes.starts_with(b"SCO\0") { return Some(("Static models", "sco")); }
+    if bytes.starts_with(b"#PROP_") || bytes.starts_with(b"#PTCH_") {
+        return Some(("Game data", "bin"));
+    }
     if bytes.starts_with(b"PROP") {
         if is_ability_property_bin(bytes) { return Some(("Abilities & VFX", "bin")); }
         return Some(("Game data", "bin"));
@@ -488,6 +512,24 @@ fn classify_wad_asset(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     if bytes.starts_with(b"RW") { return Some(("WAD archives", "wad")); }
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) { return Some(("Images", "png")); }
     None
+}
+
+fn classify_wad_asset_path(path: &str) -> Option<(&'static str, &'static str)> {
+    let path = path.to_ascii_lowercase();
+    let extension = path.rsplit_once('.')?.1;
+    match extension {
+        "troybin" => Some(("Abilities & VFX", "troybin")),
+        "tex" | "dds" => Some(("Textures", if extension == "dds" { "dds" } else { "tex" })),
+        "skn" => Some(("Models", "skn")),
+        "skl" => Some(("Skeletons", "skl")),
+        "anm" => Some(("Animations", "anm")),
+        "scb" => Some(("Static models", "scb")),
+        "sco" => Some(("Static models", "sco")),
+        "bin" => Some(("Game data", "bin")),
+        "bnk" | "wem" | "wpk" | "ogg" | "wav" => Some(("Audio", "audio")),
+        "png" | "jpg" | "jpeg" | "bmp" => Some(("Images", "image")),
+        _ => None,
+    }
 }
 
 fn is_ability_property_bin(bytes: &[u8]) -> bool {

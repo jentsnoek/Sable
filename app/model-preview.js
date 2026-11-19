@@ -309,7 +309,8 @@
           vec3 p = rotate(position), n = rotate(normal);
           float distance = 2.8 / zoom;
           gl_Position = vec4(p.x * 1.7 / aspect, p.y * 1.7, distance * 0.7 + p.z, distance + p.z);
-          vNormal = n; vColor = color; vUv = vec2(uv.x, 1.0 - uv.y);
+          // SKN UVs use the source image's top-left origin; the ImageBitmap upload keeps that row order.
+          vNormal = n; vColor = color; vUv = uv;
         }
       `);
       fragmentShader = shader(gl.FRAGMENT_SHADER, `
@@ -393,7 +394,7 @@
         ] : null;
       };
       const drawMappedTriangle = (image, screen, uv) => {
-        const source = uv.map(([u, v]) => [u * image.width, (1 - v) * image.height]);
+        const source = uv.map(([u, v]) => [u * image.width, v * image.height]);
         const [s0, s1, s2] = source, [p0, p1, p2] = screen;
         const dx1 = s1[0] - s0[0], dy1 = s1[1] - s0[1];
         const dx2 = s2[0] - s0[0], dy2 = s2[1] - s0[1];

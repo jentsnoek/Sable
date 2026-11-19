@@ -546,7 +546,7 @@
       if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return "Skeletons";
       if (bytes.length >= 8 && (magic === "r3d2" && (String.fromCharCode(...bytes.subarray(4, 8)) === "canm" || String.fromCharCode(...bytes.subarray(4, 8)) === "anmd"))) return "Animations";
       if (magic === "SCB\0" || magic === "SCO\0") return "Static models";
-      if (magic === "PROP" || magic === "PTCH") return "Game data";
+      if (magic === "PROP" || magic === "PTCH" || magic === "#PRO" || magic === "#PTC") return "Game data";
       if (magic === "BKHD" || magic === "RIFF" || magic === "WPK\0") return "Audio";
       if (magic.startsWith("RW")) return "WAD archives";
       if (bytes[0] === 0x89 && magic.slice(1, 4) === "PNG") return "Images";
@@ -561,7 +561,7 @@
       if (magic.startsWith("r3d2canm") || magic.startsWith("r3d2anmd")) return ".anm";
       if (magic.startsWith("SCB\0")) return ".scb";
       if (magic.startsWith("SCO\0")) return ".sco";
-      if (magic.startsWith("PROP") || magic.startsWith("PTCH")) return ".bin";
+      if (magic.startsWith("PROP") || magic.startsWith("PTCH") || magic.startsWith("#PROP") || magic.startsWith("#PTCH")) return ".bin";
       if (magic.startsWith("BKHD")) return ".bnk";
       if (magic.startsWith("WPK\0")) return ".wpk";
       if (magic.startsWith("RIFF")) return ".wem";
@@ -962,7 +962,7 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["HUD", "Champions", "Models", "Skeletons", "Animations", "Abilities & VFX", "Static models", "Maps & environment", "Audio", "DDS textures", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
+    const assetGroupOrder = ["HUD", "Champions", "Models", "Skeletons", "Animations", "Abilities & VFX", "Static models", "Maps & environment", "Audio", "DDS textures", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Game data", "Package metadata", "Other game assets", "Other WAD entries", "Unclassified WAD entries", "Other"];
     const hudGroupFor = (sourcePath) => {
       const path = sourcePath.replace(/\\/g, "/").toLowerCase();
       const parts = path.split("/");
@@ -998,21 +998,24 @@
       if (entry.format === "wad-chunk" && (entry.assetType === "Abilities & VFX" || parts.includes("particles"))) {
         return champion ? "Champions · " + titleCase(champion) + " · Abilities & VFX" : "Abilities & VFX";
       }
-      if (entry.format === "wad-chunk" && fileExtension(entry.path) === ".dds") {
-        const targetName = (entry.wad || "").split("/").pop() || "";
-        const targetLabel = titleCase(targetName.toLowerCase().replace(".client", "").replace(".wad", ""));
-        return "DDS textures" + (targetLabel ? " · " + targetLabel : "");
-      }
       const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
       if (isHud) return hudGroupFor(entry.path);
       if (parts.some((part) => part.includes("summonersrift") || part === "map" || part === "maps" || part.includes("terrain") || part.startsWith("map.wad")) || path.includes("map.wad")) return "Maps & environment";
-      if (champion) return "Champions · " + titleCase(champion);
-      if ([".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension) || parts.some((part) => part === "audio" || part === "sounds" || part.startsWith("audio.wad") || part.startsWith("sfx.wad"))) return "Audio";
+      if (champion) {
+        const championName = "Champions · " + titleCase(champion);
+        if (entry.assetType === "Textures" || [".tex", ".dds"].includes(extension)) return championName + " · Textures";
+        if (entry.assetType === "Game data") return championName + " · Data";
+        if (entry.assetType === "Audio" || [".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension)) return championName + " · Audio";
+        if (entry.assetType === "Images" || IMAGE_MIME[extension]) return championName + " · Images";
+        if (entry.assetType === "Other WAD entries" || entry.assetType === "Unclassified WAD entries") return championName + " · Other assets";
+        return championName;
+      }
+      if ([".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension) || entry.assetType === "Audio" || parts.some((part) => part === "audio" || part === "sounds" || part.startsWith("audio.wad") || part.startsWith("sfx.wad"))) return "Audio";
       if (path.startsWith("_meta/") || path.startsWith("meta/") || parts.some((part) => part === "info.json" || part === "info.msgpack" || part === "manifest.json")) return "Package metadata";
       if (entry.format === "wad-chunk") {
-        const targetName = (entry.wad || "").split("/").pop() || "";
-        const targetLabel = titleCase(targetName.toLowerCase().replace(".client", "").replace(".wad", ""));
-        return (entry.assetType || "Other game assets") + (targetLabel ? " · " + targetLabel : " · WAD contents");
+        if (entry.assetType === "Textures" || [".tex", ".dds"].includes(extension)) return extension === ".dds" ? "DDS textures" : "Textures";
+        if (entry.assetType === "Images" || IMAGE_MIME[extension]) return "Images";
+        return entry.assetType || "Other game assets";
       }
       if ([".tex", ".dds"].includes(extension)) return "Textures";
       if (IMAGE_MIME[extension]) return "Images";
@@ -1027,7 +1030,7 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "WAD assets are grouped by champion and role. Single file groups are folded into their champion group. Open a skin model for a 3D preview, then use Skin texture to toggle its texture."
+        ? "WAD assets are grouped by champion and role. Single file groups are folded together, and leftover files are grouped by type. Open a skin model for a 3D preview, then use Skin texture to toggle its texture."
         : "Files are grouped by their role. Open a TEX or DDS texture, or an SKN model, to preview it.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
@@ -1295,6 +1298,7 @@
       if (canPlayPackageClips || canPlayWadClips) {
         let activeSkeleton = skeleton;
         let activeSkeletonHash = null;
+        let manuallySelectedSkeleton = false;
         const bindPose = document.createElement("option"); bindPose.value = ""; bindPose.textContent = "Bind pose";
         animationSelect.append(bindPose);
         const abilityClip = (clip) => /(?:spell|ability|cast|channel|skill)[a-z0-9_-]*/i.test((clip.name || "").split("/").pop() || "");
@@ -1325,13 +1329,15 @@
         animationInfo.textContent = wadMode ? `${wadSkeletons.length} skeletons · ${clips.length} animations in WAD` : `${skeleton.joints.length} joints · ${clips.length} clips`;
         let rigLoadSequence = 0;
         let clipLoadSequence = 0;
-        const loadWadSkeleton = async (hash) => {
+        const defaultClip = () => clips.find((clip) => /idle|stand/i.test(clip.name || "")) || clips[0];
+        const loadWadSkeleton = async (hash, { resumeClip = false, autoPlayOnLoad = false } = {}) => {
           if (!hash || !wadMode || !loadedPackage?.nativePath) return;
+          const previousClipKey = animationSelect.value;
           const sequence = ++rigLoadSequence;
           clipLoadSequence++;
           activeSkeleton = null; activeSkeletonHash = null; mesh.setSkeleton(null);
           animationSelect.value = ""; mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
-          playButton.textContent = "Play"; playButton.disabled = true;
+          playButton.textContent = "Play"; playButton.disabled = true; animationSelect.disabled = true; skeletonSelect.disabled = true;
           setStatus("Loading WAD skeleton");
           try {
             const nextSkeleton = await window.__TAURI__.core.invoke("read_package_wad_skeleton_preview", {
@@ -1341,13 +1347,24 @@
             activeSkeleton = nextSkeleton; activeSkeletonHash = hash; mesh.setSkeleton(nextSkeleton);
             animationInfo.textContent = `${nextSkeleton.joints.length} joints · ${clips.length} WAD animations`;
             setStatus("WAD skeleton ready");
+            const preferredClip = resumeClip
+              ? clips.find((clip) => clip.hash === previousClipKey)
+              : autoPlayOnLoad ? defaultClip() : null;
+            if (preferredClip) {
+              animationSelect.value = preferredClip.hash;
+              await selectClip();
+            }
           } catch (error) {
             if (request === previewRequest && sequence === rigLoadSequence) {
               animationInfo.textContent = typeof error === "string" ? error : error?.message || "Skeleton could not be loaded";
               setStatus("Skeleton unavailable");
             }
           } finally {
-            if (sequence === rigLoadSequence) playButton.disabled = false;
+            if (sequence === rigLoadSequence) {
+              playButton.disabled = false;
+              animationSelect.disabled = false;
+              skeletonSelect.disabled = false;
+            }
           }
         };
         const selectClip = async () => {
@@ -1373,7 +1390,9 @@
               ? await window.__TAURI__.core.invoke("read_package_wad_animation_preview", {
                   sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath,
                   animationHash: clip.hash,
-                  skeletonHashes: [activeSkeletonHash, ...wadSkeletons.map((rig) => rig.hash).filter((hash) => hash !== activeSkeletonHash)],
+                  skeletonHashes: manuallySelectedSkeleton
+                    ? [activeSkeletonHash]
+                    : [activeSkeletonHash, ...wadSkeletons.map((rig) => rig.hash).filter((hash) => hash !== activeSkeletonHash)],
                   animationName: clip.name
                 })
               : await window.__TAURI__.core.invoke("read_package_animation_preview", {
@@ -1404,13 +1423,17 @@
             if (sequence === clipLoadSequence) { playButton.disabled = false; skeletonSelect.disabled = false; }
           }
         };
-        skeletonSelect.onchange = () => loadWadSkeleton(skeletonSelect.value);
+        skeletonSelect.onchange = () => {
+          manuallySelectedSkeleton = true;
+          loadWadSkeleton(skeletonSelect.value, { resumeClip: true });
+        };
         animationSelect.onchange = async () => {
           await selectClip();
         };
         playButton.onclick = () => {
           if (!animationSelect.value) {
-            const firstClip = clips[0];
+            const firstClip = defaultClip();
+            if (!firstClip) return;
             animationSelect.value = wadMode ? firstClip.hash : firstClip.path;
             animationSelect.dispatchEvent(new Event("change"));
             return;
@@ -1420,7 +1443,14 @@
           playButton.textContent = isPlaying ? "Pause" : "Play";
         };
         speedSelect.onchange = () => mesh.setSpeed(speedSelect.value);
-        if (canPlayWadClips) loadWadSkeleton(skeletonSelect.value);
+        if (canPlayWadClips) loadWadSkeleton(skeletonSelect.value, { autoPlayOnLoad: true });
+        else if (canPlayPackageClips) {
+          const firstClip = defaultClip();
+          if (firstClip) {
+            animationSelect.value = firstClip.path;
+            selectClip();
+          }
+        }
       } else {
         skeletonSelect.onchange = null; animationSelect.onchange = null; playButton.onclick = null; speedSelect.onchange = null;
         document.getElementById("modelHint").textContent = skeleton
