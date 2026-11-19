@@ -274,7 +274,9 @@
     clear();
     const mesh = parseSkn(bytes);
     const gl = canvas.getContext("webgl", { antialias: true, alpha: false });
-    if (!gl) throw new Error("3D preview needs WebGL. Enable graphics acceleration to view this model.");
+    const software = !gl;
+    const context2d = software ? canvas.getContext("2d", { alpha: false }) : null;
+    if (!gl && !context2d) throw new Error("This device could not create a graphics surface for the 3D preview.");
     const shader = (type, source) => {
       const result = gl.createShader(type);
       gl.shaderSource(result, source);
@@ -282,66 +284,117 @@
       if (!gl.getShaderParameter(result, gl.COMPILE_STATUS)) throw new Error("Could not prepare the 3D model renderer.");
       return result;
     };
-    const vertexShader = shader(gl.VERTEX_SHADER, `
-      attribute vec3 position; attribute vec3 normal; attribute vec3 color;
-      uniform float yaw; uniform float pitch; uniform float zoom; uniform float aspect;
-      varying vec3 vNormal; varying vec3 vColor;
-      vec3 rotate(vec3 p) {
-        float cy = cos(yaw), sy = sin(yaw), cx = cos(pitch), sx = sin(pitch);
-        vec3 y = vec3(cy*p.x + sy*p.z, p.y, -sy*p.x + cy*p.z);
-        return vec3(y.x, cx*y.y - sx*y.z, sx*y.y + cx*y.z);
+    let vertexShader = null, fragmentShader = null, program = null, buffer = null;
+    let yawUniform = null, pitchUniform = null, zoomUniform = null, aspectUniform = null;
+    if (gl) {
+      vertexShader = shader(gl.VERTEX_SHADER, `
+        attribute vec3 position; attribute vec3 normal; attribute vec3 color;
+        uniform float yaw; uniform float pitch; uniform float zoom; uniform float aspect;
+        varying vec3 vNormal; varying vec3 vColor;
+        vec3 rotate(vec3 p) {
+          float cy = cos(yaw), sy = sin(yaw), cx = cos(pitch), sx = sin(pitch);
+          vec3 y = vec3(cy*p.x + sy*p.z, p.y, -sy*p.x + cy*p.z);
+          return vec3(y.x, cx*y.y - sx*y.z, sx*y.y + cx*y.z);
+        }
+        void main() {
+          vec3 p = rotate(position), n = rotate(normal);
+          float distance = 2.8 / zoom;
+          gl_Position = vec4(p.x * 1.7 / aspect, p.y * 1.7, distance * 0.7 + p.z, distance + p.z);
+          vNormal = n; vColor = color;
+        }
+      `);
+      fragmentShader = shader(gl.FRAGMENT_SHADER, `
+        precision mediump float;
+        varying vec3 vNormal; varying vec3 vColor;
+        void main() {
+          float light = 0.35 + 0.65 * abs(dot(normalize(vNormal), normalize(vec3(0.5, 0.8, 1.0))));
+          gl_FragColor = vec4(vColor * light, 1.0);
+        }
+      `);
+      program = gl.createProgram();
+      gl.attachShader(program, vertexShader); gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error("Could not link the 3D model renderer.");
+      buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
+      gl.useProgram(program);
+      for (const [name, offset] of [["position", 0], ["normal", 12], ["color", 24]]) {
+        const location = gl.getAttribLocation(program, name);
+        gl.enableVertexAttribArray(location);
+        gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 36, offset);
       }
-      void main() {
-        vec3 p = rotate(position), n = rotate(normal);
-        float distance = 2.8 / zoom;
-        gl_Position = vec4(p.x * 1.7 / aspect, p.y * 1.7, distance * 0.7 + p.z, distance + p.z);
-        vNormal = n; vColor = color;
-      }
-    `);
-    const fragmentShader = shader(gl.FRAGMENT_SHADER, `
-      precision mediump float;
-      varying vec3 vNormal; varying vec3 vColor;
-      void main() {
-        float light = 0.35 + 0.65 * abs(dot(normalize(vNormal), normalize(vec3(0.5, 0.8, 1.0))));
-        gl_FragColor = vec4(vColor * light, 1.0);
-      }
-    `);
-    const program = gl.createProgram();
-    gl.attachShader(program, vertexShader); gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error("Could not link the 3D model renderer.");
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
-    gl.useProgram(program);
-    for (const [name, offset] of [["position", 0], ["normal", 12], ["color", 24]]) {
-      const location = gl.getAttribLocation(program, name);
-      gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 36, offset);
+      yawUniform = gl.getUniformLocation(program, "yaw");
+      pitchUniform = gl.getUniformLocation(program, "pitch");
+      zoomUniform = gl.getUniformLocation(program, "zoom");
+      aspectUniform = gl.getUniformLocation(program, "aspect");
     }
-    const yawUniform = gl.getUniformLocation(program, "yaw");
-    const pitchUniform = gl.getUniformLocation(program, "pitch");
-    const zoomUniform = gl.getUniformLocation(program, "zoom");
-    const aspectUniform = gl.getUniformLocation(program, "aspect");
     let yaw = 0.55, pitch = -0.2, zoom = 1, pointer = null;
     let activeSkeleton = skeleton;
     let animation = null, animationStart = 0, animationPosition = 0, speed = 1, playing = false, animationFrame = 0, lastAnimationUpdate = 0;
     const render = () => {
-      const width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio));
-      const height = Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio));
+      const pixelRatio = software ? Math.min(1.5, window.devicePixelRatio || 1) : window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.round(canvas.clientWidth * pixelRatio));
+      const height = Math.max(1, Math.round(canvas.clientHeight * pixelRatio));
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
-      gl.viewport(0, 0, width, height);
-      gl.clearColor(0.09, 0.075, 0.10, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      gl.enable(gl.DEPTH_TEST);
-      gl.disable(gl.CULL_FACE);
-      gl.uniform1f(yawUniform, yaw); gl.uniform1f(pitchUniform, pitch);
-      gl.uniform1f(zoomUniform, zoom); gl.uniform1f(aspectUniform, width / height);
-      gl.drawArrays(gl.TRIANGLES, 0, mesh.triangles * 3);
+      if (gl) {
+        gl.viewport(0, 0, width, height);
+        gl.clearColor(0.09, 0.075, 0.10, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST);
+        gl.disable(gl.CULL_FACE);
+        gl.uniform1f(yawUniform, yaw); gl.uniform1f(pitchUniform, pitch);
+        gl.uniform1f(zoomUniform, zoom); gl.uniform1f(aspectUniform, width / height);
+        gl.drawArrays(gl.TRIANGLES, 0, mesh.triangles * 3);
+        return;
+      }
+
+      const ctx = context2d;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#171319"; ctx.fillRect(0, 0, width, height);
+      const cy = Math.cos(yaw), sy = Math.sin(yaw), cx = Math.cos(pitch), sx = Math.sin(pitch);
+      const distance = 2.8 / zoom, aspect = width / height;
+      const rotate = (x, y, z) => {
+        const rotatedX = cy * x + sy * z, rotatedZ = -sy * x + cy * z;
+        return [rotatedX, cx * y - sx * rotatedZ, sx * y + cx * rotatedZ];
+      };
+      const project = (point) => {
+        const w = distance + point[2];
+        return w > 0.1 ? [
+          (point[0] * 1.7 / aspect / w * 0.5 + 0.5) * width,
+          (0.5 - point[1] * 1.7 / w * 0.5) * height,
+          point[2]
+        ] : null;
+      };
+      const triangleStep = Math.max(1, Math.ceil(mesh.triangles / 50000));
+      const triangles = [];
+      for (let triangle = 0; triangle < mesh.triangles; triangle += triangleStep) {
+        const offset = triangle * 27;
+        const p0 = rotate(mesh.vertices[offset], mesh.vertices[offset + 1], mesh.vertices[offset + 2]);
+        const p1 = rotate(mesh.vertices[offset + 9], mesh.vertices[offset + 10], mesh.vertices[offset + 11]);
+        const p2 = rotate(mesh.vertices[offset + 18], mesh.vertices[offset + 19], mesh.vertices[offset + 20]);
+        const a = project(p0), b = project(p1), c = project(p2);
+        if (!a || !b || !c) continue;
+        const normal = rotate(mesh.vertices[offset + 3], mesh.vertices[offset + 4], mesh.vertices[offset + 5]);
+        const normalLength = Math.hypot(...normal) || 1;
+        const light = 0.35 + 0.65 * Math.abs((normal[0] * 0.5 + normal[1] * 0.8 + normal[2]) / (normalLength * Math.hypot(0.5, 0.8, 1)));
+        const red = Math.round(mesh.vertices[offset + 6] * light * 255);
+        const green = Math.round(mesh.vertices[offset + 7] * light * 255);
+        const blue = Math.round(mesh.vertices[offset + 8] * light * 255);
+        triangles.push({ a, b, c, depth: (p0[2] + p1[2] + p2[2]) / 3, fill: `rgb(${red}, ${green}, ${blue})` });
+      }
+      triangles.sort((a, b) => a.depth - b.depth);
+      for (const triangle of triangles) {
+        ctx.beginPath(); ctx.moveTo(triangle.a[0], triangle.a[1]);
+        ctx.lineTo(triangle.b[0], triangle.b[1]); ctx.lineTo(triangle.c[0], triangle.c[1]);
+        ctx.closePath(); ctx.fillStyle = triangle.fill; ctx.fill();
+      }
     };
     const uploadMesh = () => {
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, mesh.vertices);
+      if (gl) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, mesh.vertices);
+      }
       render();
     };
     const stopAnimationFrame = () => {
@@ -355,7 +408,7 @@
     const tick = (timestamp) => {
       animationFrame = 0;
       if (!playing || !animation || !activeSkeleton) return;
-      if (timestamp - lastAnimationUpdate < 1000 / 24) {
+      if (timestamp - lastAnimationUpdate < 1000 / (software ? 12 : 24)) {
         animationFrame = requestAnimationFrame(tick);
         return;
       }
@@ -436,12 +489,14 @@
       canvas.removeEventListener("pointercancel", up);
       canvas.removeEventListener("wheel", wheel);
       canvas.removeEventListener("dblclick", reset);
-      gl.deleteBuffer(buffer); gl.deleteProgram(program);
-      gl.deleteShader(vertexShader); gl.deleteShader(fragmentShader);
+      if (gl) {
+        gl.deleteBuffer(buffer); gl.deleteProgram(program);
+        gl.deleteShader(vertexShader); gl.deleteShader(fragmentShader);
+      }
     };
     mesh.bindVertices = mesh.vertices.slice();
     render();
-    return { ...mesh, setAnimation, setPlaying, setSpeed, setSkeleton };
+    return { ...mesh, renderingMode: software ? "software" : "webgl", setAnimation, setPlaying, setSpeed, setSkeleton };
   };
   window.SableModelPreview = { parseSkn, show, clear };
 })();

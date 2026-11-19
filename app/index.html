@@ -1205,9 +1205,12 @@
       image.classList.add("hidden");
       message.classList.add("hidden");
       canvas.classList.remove("hidden");
-      document.getElementById("modelHint").classList.remove("hidden");
+      const modelHint = document.getElementById("modelHint");
+      modelHint.textContent = "3D model · drag to rotate · scroll to zoom · double-click to reset";
+      modelHint.classList.remove("hidden");
       const skeleton = bundle?.skeleton || null;
       const mesh = window.SableModelPreview.show(canvas, bytes, skeleton);
+      if (mesh.renderingMode === "software") modelHint.textContent = "Software 3D preview · drag to rotate · scroll to zoom · double-click to reset";
       currentModelController = mesh;
       const controls = document.getElementById("modelControls");
       const skeletonLabel = document.getElementById("modelSkeletonLabel");
