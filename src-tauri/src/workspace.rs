@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs::{self, File},
-    io::{BufReader, BufWriter, Cursor},
+    io::{BufReader, BufWriter, Cursor, Read},
     path::{Component, Path, PathBuf},
     process::Command,
     sync::Mutex,
@@ -300,7 +300,7 @@ fn preview_package_texture_blocking(
         }
     }
 
-    preview_wad_texture(&workspace, &requested, &entry_path)
+    preview_wad_texture(&source_path, &requested, &entry_path)
 }
 
 #[derive(Debug, Serialize)]
@@ -389,14 +389,7 @@ fn inspect_package_wad_assets_blocking(
     source_path: String,
     wad_path: String,
 ) -> Result<Vec<WadAssetEntry>, String> {
-    let workspace = ensure_preview_workspace(&source_path)?;
-    let workspace_manifest = read_workspace_manifest(&workspace)?;
-    let project_dir = safe_child(&workspace, &workspace_manifest.project_dir)?;
-    let wad_file = find_project_file(&project_dir, &wad_path)?;
-    let mut wad = Wad::mount(
-        File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
-    )
-    .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+    let mut wad = open_package_wad(&source_path, &wad_path)?;
 
     let chunks: Vec<_> = wad.chunks().iter().copied().collect();
     let mut assets = Vec::new();
@@ -647,14 +640,7 @@ pub async fn read_package_wad_model(
     hash: String,
 ) -> Result<Vec<u8>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let workspace = ensure_preview_workspace(&source_path)?;
-        let manifest = read_workspace_manifest(&workspace)?;
-        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
-        let wad_file = find_project_file(&project_dir, &wad_path)?;
-        let mut wad = Wad::mount(
-            File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
-        )
-        .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+        let mut wad = open_package_wad(&source_path, &wad_path)?;
         let path_hash: WadHash = hash.parse().map_err(|_| "Invalid model hash.".to_owned())?;
         let chunk = wad.chunks().get(path_hash).copied()
             .ok_or_else(|| "This WAD no longer contains the selected model.".to_owned())?;
@@ -703,12 +689,7 @@ pub async fn read_package_wad_animation_preview(
 }
 
 fn read_wad_asset_bytes(source_path: &str, wad_path: &str, hash: &str) -> Result<Vec<u8>, String> {
-    let workspace = ensure_preview_workspace(source_path)?;
-    let manifest = read_workspace_manifest(&workspace)?;
-    let project_dir = safe_child(&workspace, &manifest.project_dir)?;
-    let wad_file = find_project_file(&project_dir, wad_path)?;
-    let mut wad = Wad::mount(File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?)
-        .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+    let mut wad = open_package_wad(source_path, wad_path)?;
     let path_hash: WadHash = hash.parse().map_err(|_| "Invalid WAD asset hash.".to_owned())?;
     let chunk = wad.chunks().get(path_hash).copied()
         .ok_or_else(|| "This WAD no longer contains the selected asset.".to_owned())?;
@@ -900,6 +881,65 @@ fn find_project_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf
     }
 }
 
+fn open_package_wad(source_path: &str, wad_path: &str) -> Result<Wad<Cursor<Vec<u8>>>, String> {
+    let source = Path::new(source_path);
+    let mut fantome_error = None;
+    if source.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("fantome")) {
+        match read_fantome_wad(source, wad_path) {
+            Ok(bytes) => {
+                return Wad::mount(Cursor::new(bytes))
+                    .map_err(|error| format!("Could not read WAD archive {wad_path}: {error}"));
+            }
+            Err(error) => fantome_error = Some(error),
+        }
+    }
+
+    let project_result = (|| {
+        let workspace = ensure_preview_workspace(source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let wad_file = find_project_file(&project_dir, wad_path)?;
+        fs::read(&wad_file).map_err(|error| format!("Could not read WAD archive: {error}"))
+    })();
+    let bytes = match project_result {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if let Some(fantome_error) = fantome_error {
+                return Err(format!("{fantome_error} Imported project lookup also failed: {error}"));
+            }
+            return Err(error);
+        }
+    };
+    Wad::mount(Cursor::new(bytes))
+        .map_err(|error| format!("Could not read WAD archive: {error}"))
+}
+
+fn read_fantome_wad(source: &Path, requested_path: &str) -> Result<Vec<u8>, String> {
+    let file = File::open(source).map_err(|error| format!("Could not open the .fantome package: {error}"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| format!("Could not read the .fantome ZIP archive: {error}"))?;
+    let requested = normalize_package_path(requested_path);
+    let mut matching_index = None;
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index)
+            .map_err(|error| format!("Could not read a .fantome package entry: {error}"))?;
+        if normalize_package_path(entry.name()) == requested {
+            matching_index = Some(index);
+            break;
+        }
+    }
+    let index = matching_index.ok_or_else(|| format!("Could not find {requested_path} in the .fantome package."))?;
+    let mut entry = archive.by_index(index)
+        .map_err(|error| format!("Could not open {requested_path} in the .fantome package: {error}"))?;
+    if entry.size() > 512 * 1024 * 1024 {
+        return Err("This WAD archive is over the 512 MB preview limit.".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    entry.read_to_end(&mut bytes)
+        .map_err(|error| format!("Could not extract {requested_path} from the .fantome package: {error}"))?;
+    Ok(bytes)
+}
+
 fn collect_files_named(root: &Path, filename: &str, found: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -917,7 +957,7 @@ fn collect_files_named(root: &Path, filename: &str, found: &mut Vec<PathBuf>) ->
 }
 
 fn preview_wad_texture(
-    workspace: &Path,
+    source_path: &str,
     requested: &str,
     display_path: &str,
 ) -> Result<TexturePreviewResult, String> {
@@ -935,13 +975,7 @@ fn preview_wad_texture(
     let hash: WadHash = hash_text
         .parse()
         .map_err(|_| format!("This WAD texture has an invalid hash: {display_path}"))?;
-    let workspace_manifest = read_workspace_manifest(workspace)?;
-    let project_dir = safe_child(workspace, &workspace_manifest.project_dir)?;
-    let wad_file = find_project_file(&project_dir, wad_relative)?;
-    let mut wad = Wad::mount(
-        File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
-    )
-    .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+    let mut wad = open_package_wad(source_path, wad_relative)?;
     let chunk = wad
         .chunks()
         .get(hash)
