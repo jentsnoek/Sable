@@ -409,7 +409,7 @@ fn inspect_package_wad_assets_blocking(
             if bytes.starts_with(b"PROP") || bytes.starts_with(b"PTCH") {
                 for path in extract_wad_path_references(&bytes) {
                     let referenced_hash = WadHash::hash_str(&path);
-                    if wad.chunks().contains(&referenced_hash) {
+                    if wad.chunks().contains(referenced_hash) {
                         resolved_paths.entry(format!("{referenced_hash:016x}")).or_insert(path);
                     }
                 }
