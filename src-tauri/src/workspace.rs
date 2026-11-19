@@ -361,6 +361,9 @@ pub struct AnimationPreview {
     duration: f32,
     fps: f32,
     sample_rate: f32,
+    matched_skeleton_hash: Option<String>,
+    #[serde(skip_serializing)]
+    matched_joint_count: usize,
     frames: Vec<Vec<AnimationJointSample>>,
 }
 
@@ -677,12 +680,52 @@ pub async fn read_package_wad_animation_preview(
     source_path: String,
     wad_path: String,
     animation_hash: String,
-    skeleton_hash: String,
+    skeleton_hashes: Vec<String>,
+    animation_name: String,
 ) -> Result<AnimationPreview, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let animation_bytes = read_wad_asset_bytes(&source_path, &wad_path, &animation_hash)?;
-        let skeleton_bytes = read_wad_asset_bytes(&source_path, &wad_path, &skeleton_hash)?;
-        create_animation_preview(&animation_bytes, &skeleton_bytes, &format!("0x{animation_hash}"))
+        let mut wad = open_package_wad(&source_path, &wad_path)?;
+        let animation_path_hash: WadHash = animation_hash.parse()
+            .map_err(|_| "Invalid WAD animation hash.".to_owned())?;
+        let animation_chunk = wad.chunks().get(animation_path_hash).copied()
+            .ok_or_else(|| "This WAD no longer contains the selected animation.".to_owned())?;
+        if animation_chunk.uncompressed_size() > 32 * 1024 * 1024 {
+            return Err("This animation is over the 32 MB preview limit.".to_owned());
+        }
+        let animation_bytes = wad.load_chunk_decompressed(&animation_chunk)
+            .map_err(|error| format!("Could not decompress WAD animation: {error}"))?
+            .to_vec();
+
+        let mut last_error = None;
+        let mut best_preview: Option<AnimationPreview> = None;
+        for skeleton_hash in skeleton_hashes {
+            let path_hash: WadHash = match skeleton_hash.parse() {
+                Ok(hash) => hash,
+                Err(_) => continue,
+            };
+            let Some(chunk) = wad.chunks().get(path_hash).copied() else { continue };
+            if chunk.uncompressed_size() > 32 * 1024 * 1024 {
+                last_error = Some("A candidate skeleton is over the 32 MB preview limit.".to_owned());
+                continue;
+            }
+            let skeleton_bytes = match wad.load_chunk_decompressed(&chunk) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    last_error = Some(format!("Could not decompress WAD skeleton: {error}"));
+                    continue;
+                }
+            };
+            match create_animation_preview(&animation_bytes, &skeleton_bytes, &animation_name) {
+                Ok(mut preview) => {
+                    preview.matched_skeleton_hash = Some(skeleton_hash);
+                    if best_preview.as_ref().map_or(true, |best| preview.matched_joint_count > best.matched_joint_count) {
+                        best_preview = Some(preview);
+                    }
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        best_preview.ok_or_else(|| last_error.unwrap_or_else(|| "No compatible skeleton was found for this animation.".to_owned()))
     })
     .await
     .map_err(|error| error.to_string())?
@@ -845,6 +888,8 @@ fn create_animation_preview(bytes: &[u8], skeleton_bytes: &[u8], name: &str) -> 
         duration,
         fps,
         sample_rate,
+        matched_skeleton_hash: None,
+        matched_joint_count,
         frames,
     })
 }

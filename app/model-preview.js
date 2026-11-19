@@ -69,6 +69,7 @@
     if (major >= 2) take(12); // End tab
 
     const positions = new Float32Array(vertexCount * 3);
+    const uvs = new Float32Array(vertexCount * 2);
     const blendIndices = new Uint8Array(vertexCount * 4);
     const blendWeights = new Float32Array(vertexCount * 4);
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
@@ -86,6 +87,10 @@
         const weight = view.getFloat32(offset + 16 + slot * 4, true);
         blendWeights[i * 4 + slot] = Number.isFinite(weight) && weight > 0 ? weight : 0;
       }
+      for (let axis = 0; axis < 2; axis++) {
+        const uv = view.getFloat32(offset + 44 + axis * 4, true);
+        uvs[i * 2 + axis] = Number.isFinite(uv) ? uv : 0;
+      }
     }
     const center = min.map((value, axis) => (value + max[axis]) / 2);
     const extent = Math.max(...max.map((value, axis) => value - min[axis]));
@@ -93,7 +98,7 @@
     const scale = 1.7 / extent;
     // Expand indexed triangles into one interleaved position/normal/color buffer.
     // This keeps the renderer compatible with WebGL 1 and large source meshes.
-    const vertices = new Float32Array(indexCount * 9);
+    const vertices = new Float32Array(indexCount * 11);
     let output = 0, triangles = 0;
     const sourceIds = [];
     for (let part = 0; part < ranges.length; part++) {
@@ -123,6 +128,8 @@
           for (let axis = 0; axis < 3; axis++) vertices[output++] = (positions[base + axis] - center[axis]) * scale;
           for (let axis = 0; axis < 3; axis++) vertices[output++] = normal[axis] / length;
           for (let axis = 0; axis < 3; axis++) vertices[output++] = color[axis];
+          vertices[output++] = uvs[ids[corner] * 2];
+          vertices[output++] = uvs[ids[corner] * 2 + 1];
         }
         triangles++;
       }
@@ -130,7 +137,7 @@
     if (!triangles) throw new Error("This SKN model has no triangles to preview.");
     return {
       vertices: vertices.subarray(0, output), triangles, parts: ranges.length, sourceVertices: vertexCount,
-      positions, blendIndices, blendWeights, sourceIds: Uint32Array.from(sourceIds), center, scale, flags
+      positions, uvs, blendIndices, blendWeights, sourceIds: Uint32Array.from(sourceIds), center, scale, flags
     };
   };
 
@@ -242,7 +249,7 @@
       const length = Math.hypot(...normal) || 1;
       for (let corner = 0; corner < 3; corner++) {
         const point = [p0, p1, p2][corner];
-        const base = (offset + corner) * 9;
+        const base = (offset + corner) * 11;
         vertices[base] = point[0]; vertices[base + 1] = point[1]; vertices[base + 2] = point[2];
         vertices[base + 3] = normal[0] / length; vertices[base + 4] = normal[1] / length; vertices[base + 5] = normal[2] / length;
       }
@@ -286,11 +293,13 @@
     };
     let vertexShader = null, fragmentShader = null, program = null, buffer = null;
     let yawUniform = null, pitchUniform = null, zoomUniform = null, aspectUniform = null;
+    let skinTextureUniform = null, useSkinTextureUniform = null, skinTextureHandle = null;
+    let skinTextureImage = null, useSkinTexture = false;
     if (gl) {
       vertexShader = shader(gl.VERTEX_SHADER, `
-        attribute vec3 position; attribute vec3 normal; attribute vec3 color;
+        attribute vec3 position; attribute vec3 normal; attribute vec3 color; attribute vec2 uv;
         uniform float yaw; uniform float pitch; uniform float zoom; uniform float aspect;
-        varying vec3 vNormal; varying vec3 vColor;
+        varying vec3 vNormal; varying vec3 vColor; varying vec2 vUv;
         vec3 rotate(vec3 p) {
           float cy = cos(yaw), sy = sin(yaw), cx = cos(pitch), sx = sin(pitch);
           vec3 y = vec3(cy*p.x + sy*p.z, p.y, -sy*p.x + cy*p.z);
@@ -300,15 +309,17 @@
           vec3 p = rotate(position), n = rotate(normal);
           float distance = 2.8 / zoom;
           gl_Position = vec4(p.x * 1.7 / aspect, p.y * 1.7, distance * 0.7 + p.z, distance + p.z);
-          vNormal = n; vColor = color;
+          vNormal = n; vColor = color; vUv = vec2(uv.x, 1.0 - uv.y);
         }
       `);
       fragmentShader = shader(gl.FRAGMENT_SHADER, `
         precision mediump float;
-        varying vec3 vNormal; varying vec3 vColor;
+        varying vec3 vNormal; varying vec3 vColor; varying vec2 vUv;
+        uniform sampler2D skinTexture; uniform float useSkinTexture;
         void main() {
           float light = 0.35 + 0.65 * abs(dot(normalize(vNormal), normalize(vec3(0.5, 0.8, 1.0))));
-          gl_FragColor = vec4(vColor * light, 1.0);
+          vec4 baseColor = useSkinTexture > 0.5 ? texture2D(skinTexture, vUv) : vec4(vColor, 1.0);
+          gl_FragColor = vec4(baseColor.rgb * light, baseColor.a);
         }
       `);
       program = gl.createProgram();
@@ -319,15 +330,24 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
       gl.useProgram(program);
-      for (const [name, offset] of [["position", 0], ["normal", 12], ["color", 24]]) {
+      for (const [name, size, offset] of [["position", 3, 0], ["normal", 3, 12], ["color", 3, 24], ["uv", 2, 36]]) {
         const location = gl.getAttribLocation(program, name);
         gl.enableVertexAttribArray(location);
-        gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 36, offset);
+        gl.vertexAttribPointer(location, size, gl.FLOAT, false, 44, offset);
       }
+      skinTextureHandle = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, skinTextureHandle);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
       yawUniform = gl.getUniformLocation(program, "yaw");
       pitchUniform = gl.getUniformLocation(program, "pitch");
       zoomUniform = gl.getUniformLocation(program, "zoom");
       aspectUniform = gl.getUniformLocation(program, "aspect");
+      skinTextureUniform = gl.getUniformLocation(program, "skinTexture");
+      useSkinTextureUniform = gl.getUniformLocation(program, "useSkinTexture");
     }
     let yaw = 0.55, pitch = -0.2, zoom = 1, pointer = null;
     let activeSkeleton = skeleton;
@@ -345,6 +365,12 @@
         gl.disable(gl.CULL_FACE);
         gl.uniform1f(yawUniform, yaw); gl.uniform1f(pitchUniform, pitch);
         gl.uniform1f(zoomUniform, zoom); gl.uniform1f(aspectUniform, width / height);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, skinTextureHandle);
+        gl.uniform1i(skinTextureUniform, 0);
+        gl.uniform1f(useSkinTextureUniform, useSkinTexture && skinTextureImage ? 1 : 0);
+        if (useSkinTexture && skinTextureImage) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.drawArrays(gl.TRIANGLES, 0, mesh.triangles * 3);
         return;
       }
@@ -366,10 +392,30 @@
           point[2]
         ] : null;
       };
+      const drawMappedTriangle = (image, screen, uv) => {
+        const source = uv.map(([u, v]) => [u * image.width, (1 - v) * image.height]);
+        const [s0, s1, s2] = source, [p0, p1, p2] = screen;
+        const dx1 = s1[0] - s0[0], dy1 = s1[1] - s0[1];
+        const dx2 = s2[0] - s0[0], dy2 = s2[1] - s0[1];
+        const determinant = dx1 * dy2 - dx2 * dy1;
+        if (Math.abs(determinant) < 1e-5) return false;
+        const inverse = 1 / determinant;
+        const a = ((p1[0] - p0[0]) * dy2 - (p2[0] - p0[0]) * dy1) * inverse;
+        const c = (dx1 * (p2[0] - p0[0]) - dx2 * (p1[0] - p0[0])) * inverse;
+        const b = ((p1[1] - p0[1]) * dy2 - (p2[1] - p0[1]) * dy1) * inverse;
+        const d = (dx1 * (p2[1] - p0[1]) - dx2 * (p1[1] - p0[1])) * inverse;
+        const e = p0[0] - a * s0[0] - c * s0[1];
+        const f = p0[1] - b * s0[0] - d * s0[1];
+        ctx.save();
+        ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.closePath(); ctx.clip();
+        ctx.transform(a, b, c, d, e, f); ctx.drawImage(image, 0, 0);
+        ctx.restore();
+        return true;
+      };
       const triangleStep = Math.max(1, Math.ceil(mesh.triangles / 50000));
       const triangles = [];
       for (let triangle = 0; triangle < mesh.triangles; triangle += triangleStep) {
-        const offset = triangle * 27;
+        const offset = triangle * 33;
         const p0 = rotate(mesh.vertices[offset], mesh.vertices[offset + 1], mesh.vertices[offset + 2]);
         const p1 = rotate(mesh.vertices[offset + 9], mesh.vertices[offset + 10], mesh.vertices[offset + 11]);
         const p2 = rotate(mesh.vertices[offset + 18], mesh.vertices[offset + 19], mesh.vertices[offset + 20]);
@@ -381,13 +427,20 @@
         const red = Math.round(mesh.vertices[offset + 6] * light * 255);
         const green = Math.round(mesh.vertices[offset + 7] * light * 255);
         const blue = Math.round(mesh.vertices[offset + 8] * light * 255);
-        triangles.push({ a, b, c, depth: (p0[2] + p1[2] + p2[2]) / 3, fill: `rgb(${red}, ${green}, ${blue})` });
+        triangles.push({ a, b, c, depth: (p0[2] + p1[2] + p2[2]) / 3, light, uv: [[mesh.vertices[offset + 9], mesh.vertices[offset + 10]], [mesh.vertices[offset + 20], mesh.vertices[offset + 21]], [mesh.vertices[offset + 31], mesh.vertices[offset + 32]]], fill: `rgb(${red}, ${green}, ${blue})` });
       }
       triangles.sort((a, b) => a.depth - b.depth);
       for (const triangle of triangles) {
+        const screen = [triangle.a, triangle.b, triangle.c];
+        const textured = useSkinTexture && skinTextureImage && drawMappedTriangle(skinTextureImage, screen, triangle.uv);
         ctx.beginPath(); ctx.moveTo(triangle.a[0], triangle.a[1]);
         ctx.lineTo(triangle.b[0], triangle.b[1]); ctx.lineTo(triangle.c[0], triangle.c[1]);
-        ctx.closePath(); ctx.fillStyle = triangle.fill; ctx.fill();
+        ctx.closePath();
+        if (textured) {
+          ctx.fillStyle = `rgba(0, 0, 0, ${Math.max(0, 1 - triangle.light)})`; ctx.fill();
+        } else {
+          ctx.fillStyle = triangle.fill; ctx.fill();
+        }
       }
     };
     const uploadMesh = () => {
@@ -460,11 +513,30 @@
         uploadMesh();
       }
     };
+    const setTexture = (image) => {
+      skinTextureImage = image || null;
+      if (gl && skinTextureImage) {
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, skinTextureHandle);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, skinTextureImage);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      }
+      render();
+      return Boolean(skinTextureImage);
+    };
+    const setTextured = (value) => {
+      useSkinTexture = Boolean(value && skinTextureImage);
+      render();
+      return useSkinTexture;
+    };
     const down = (event) => { pointer = { x: event.clientX, y: event.clientY }; canvas.setPointerCapture(event.pointerId); };
     const move = (event) => {
       if (!pointer) return;
-      yaw += (event.clientX - pointer.x) * 0.01;
-      pitch = Math.max(-1.45, Math.min(1.45, pitch + (event.clientY - pointer.y) * 0.01));
+      yaw -= (event.clientX - pointer.x) * 0.01;
+      pitch = Math.max(-1.45, Math.min(1.45, pitch - (event.clientY - pointer.y) * 0.01));
       pointer = { x: event.clientX, y: event.clientY };
       render();
     };
@@ -492,11 +564,14 @@
       if (gl) {
         gl.deleteBuffer(buffer); gl.deleteProgram(program);
         gl.deleteShader(vertexShader); gl.deleteShader(fragmentShader);
+        if (skinTextureHandle) gl.deleteTexture(skinTextureHandle);
       }
+      skinTextureImage?.close?.();
+      skinTextureImage = null;
     };
     mesh.bindVertices = mesh.vertices.slice();
     render();
-    return { ...mesh, renderingMode: software ? "software" : "webgl", setAnimation, setPlaying, setSpeed, setSkeleton };
+    return { ...mesh, renderingMode: software ? "software" : "webgl", setAnimation, setPlaying, setSpeed, setSkeleton, setTexture, setTextured };
   };
   window.SableModelPreview = { parseSkn, show, clear };
 })();

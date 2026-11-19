@@ -125,7 +125,10 @@
     .game-preview.asset-mode .asset-overlay { display: flex; }
     .asset-overlay.is-visible { display: flex !important; }
     .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
-    .asset-viewer-title { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dce5; font-size: 11px; font-weight: 650; }
+    .asset-viewer-heading { position: relative; width: 100%; min-height: 24px; display: flex; align-items: center; justify-content: space-between; }
+    .asset-viewer-title { position: absolute; left: 50%; max-width: calc(100% - 180px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); color: #e6dce5; font-size: 11px; font-weight: 650; }
+    .skin-texture-toggle { z-index: 1; display: inline-flex; align-items: center; gap: 7px; margin-left: auto; color: var(--muted); font-size: 9px; white-space: nowrap; }
+    .skin-texture-toggle .mini-switch { width: 30px; height: 17px; }
     .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; background-color: #f2eff3; background-image: linear-gradient(45deg, #b9b4bc 25%, transparent 25%, transparent 75%, #b9b4bc 75%), linear-gradient(45deg, #b9b4bc 25%, #f2eff3 25%, #f2eff3 75%, #b9b4bc 75%); background-position: 0 0, 12px 12px; background-size: 24px 24px; }
     .asset-model { flex: 1 1 auto; min-height: 0; width: 100%; border: 1px solid #51424c; border-radius: 7px; background: #171319; cursor: grab; touch-action: none; }
     .asset-model:active { cursor: grabbing; }
@@ -324,7 +327,7 @@
           <div class="canvas-label"><span>Preview</span><span>Select a file from the library</span></div>
           <div class="game-preview no-package" id="gamePreview">
             <div class="empty-canvas" id="emptyCanvas"><span class="welcome-logo-frame"><img class="welcome-logo" src="" alt=""></span><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a .fantome or .modpkg to browse its files, preview supported assets, and unpack a working copy.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod</button><div class="empty-note">Your original download stays untouched.</div></div>
-            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><canvas id="assetModel" class="asset-model hidden" aria-label="Rotatable 3D model preview"></canvas><div class="model-controls hidden" id="modelControls"><label id="modelSkeletonLabel" class="hidden">Skeleton<select id="modelSkeleton" aria-label="Select model skeleton"></select></label><label>Animation<select id="modelAnimation" aria-label="Select model animation"></select></label><button class="btn quiet" id="modelPlay" type="button">Play</button><label>Speed<select id="modelSpeed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><span id="modelAnimationInfo">Bind pose</span></div><div id="modelHint" class="model-hint hidden">3D model · drag to rotate · scroll to zoom · double-click to reset</div><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
+            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-heading"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><label class="skin-texture-toggle hidden" id="skinTextureControl"><span>Skin texture</span><button class="mini-switch off" id="skinTextureSwitch" type="button" role="switch" aria-checked="false" aria-label="Toggle skin texture"></button></label></div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><canvas id="assetModel" class="asset-model hidden" aria-label="Rotatable 3D model preview"></canvas><div class="model-controls hidden" id="modelControls"><label id="modelSkeletonLabel" class="hidden">Skeleton<select id="modelSkeleton" aria-label="Select model skeleton"></select></label><label>Animation<select id="modelAnimation" aria-label="Select model animation"></select></label><button class="btn quiet" id="modelPlay" type="button">Play</button><label>Speed<select id="modelSpeed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><span id="modelAnimationInfo">Bind pose</span></div><div id="modelHint" class="model-hint hidden">3D model · drag to rotate · scroll to zoom · double-click to reset</div><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
           </div>
         </div>
       </section>
@@ -988,6 +991,8 @@
       const titleCase = (value) => value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
       if (entry.format === "wad-chunk" && ["Models", "Skeletons", "Animations", "Static models"].includes(entry.assetType)) {
         const label = ({ Models: "Models", Skeletons: "Skeletons", Animations: "Animations", "Static models": "Static models" })[entry.assetType];
+        const wadName = (entry.wad || "").split("/").pop()?.replace(/\.wad(?:\.client)?$/i, "").toLowerCase() || "";
+        if (champion && wadName && champion.toLowerCase() === wadName) champion = wadName;
         return champion ? "Champions · " + titleCase(champion) + " · " + label : label;
       }
       if (entry.format === "wad-chunk" && (entry.assetType === "Abilities & VFX" || parts.includes("particles"))) {
@@ -1022,7 +1027,7 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "WAD assets are grouped by type. Sable previews a skin model automatically; expand Models to pick another. Search .dds for DDS textures."
+        ? "WAD assets are grouped by champion and role. Single file groups are folded into their champion group. Open a skin model for a 3D preview, then use Skin texture to toggle its texture."
         : "Files are grouped by their role. Open a TEX or DDS texture, or an SKN model, to preview it.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
@@ -1033,6 +1038,14 @@
         const group = assetGroupFor(entry);
         if (!groups.has(group)) groups.set(group, []);
         groups.get(group).push(entry);
+      }
+      for (const [groupName, groupEntries] of [...groups]) {
+        const championSubgroup = groupName.match(/^Champions · (.+) · .+$/);
+        if (groupEntries.length !== 1 || !championSubgroup) continue;
+        const championGroup = `Champions · ${championSubgroup[1]}`;
+        groups.delete(groupName);
+        if (!groups.has(championGroup)) groups.set(championGroup, []);
+        groups.get(championGroup).push(...groupEntries);
       }
       const groupNames = [...groups.keys()].sort((a, b) => {
         const rank = (name) => { const index = assetGroupOrder.findIndex((base) => name === base || name.startsWith(`${base} · `)); return index < 0 ? assetGroupOrder.length : index; };
@@ -1201,6 +1214,48 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = `DDS preview · ${preview.width}×${preview.height}`;
     };
+    const findModelTextureEntry = (modelEntry) => {
+      const modelPath = (modelEntry?.path || "").replace(/\\/g, "/").toLowerCase();
+      const modelDirectory = modelPath.slice(0, modelPath.lastIndexOf("/"));
+      const modelStem = modelPath.split("/").pop()?.replace(/\.[^.]+$/, "") || "";
+      if (!modelDirectory || !currentWadView) return null;
+      const candidates = currentWadView.entries.filter((item) => {
+        const path = (item.path || "").replace(/\\/g, "/").toLowerCase();
+        return item.assetType === "Textures" &&
+          [".tex", ".dds"].includes(fileExtension(path)) &&
+          path.slice(0, path.lastIndexOf("/")) === modelDirectory &&
+          !/(?:^|\/)(?:particles|loadscreen|portraits?)\//i.test(path);
+      });
+      const score = (item) => {
+        const name = (item.path || "").split("/").pop() || "";
+        let value = 0;
+        if (name.toLowerCase().startsWith(modelStem)) value += 20;
+        if (/(?:tx[_-]?cm|diffuse|albedo|base[_-]?color|basecolor)/i.test(name)) value += 100;
+        if (/(?:normal|specular|roughness|mask|metallic|emissive)/i.test(name)) value -= 80;
+        if (/\.tex$/i.test(name)) value += 5;
+        return value;
+      };
+      return candidates.sort((a, b) => score(b) - score(a) || b.size - a.size)[0] || null;
+    };
+    const makeTextureBitmap = async (textureEntry) => {
+      let blob;
+      if (isDesktopApp && loadedPackage?.nativePath) {
+        const extension = fileExtension(textureEntry.path);
+        const wadPath = textureEntry.wad || currentWadView?.sourceEntry?.path;
+        const preview = await window.__TAURI__.core.invoke("preview_package_texture", {
+          sourcePath: loadedPackage.nativePath,
+          entryPath: `${wadPath}/0x${textureEntry.hash}${extension}`
+        });
+        blob = new Blob([new Uint8Array(preview.pngBytes)], { type: "image/png" });
+      } else {
+        if (!currentWadView) throw new Error("Reopen the WAD to load its skin texture.");
+        const bytes = await readWadChunk(currentWadView.bytes, textureEntry);
+        const preview = fileExtension(textureEntry.path) === ".dds" ? await ddsToPng(bytes) : await texToPng(bytes);
+        blob = preview.blob;
+      }
+      if (typeof createImageBitmap !== "function") throw new Error("This device cannot load a texture into the 3D viewer.");
+      return createImageBitmap(blob);
+    };
     const showModelPreview = (bytes, entry, request, bundle = null) => {
       if (request !== previewRequest) return;
       const canvas = document.getElementById("assetModel");
@@ -1223,7 +1278,11 @@
       const playButton = document.getElementById("modelPlay");
       const speedSelect = document.getElementById("modelSpeed");
       const animationInfo = document.getElementById("modelAnimationInfo");
+      const skinTextureControl = document.getElementById("skinTextureControl");
+      const skinTextureSwitch = document.getElementById("skinTextureSwitch");
       controls.classList.add("hidden");
+      skinTextureControl.classList.add("hidden");
+      skinTextureSwitch.onclick = null;
       skeletonLabel.classList.add("hidden");
       skeletonSelect.disabled = false; playButton.disabled = false;
       skeletonSelect.replaceChildren();
@@ -1284,7 +1343,7 @@
             setStatus("WAD skeleton ready");
           } catch (error) {
             if (request === previewRequest && sequence === rigLoadSequence) {
-              animationInfo.textContent = error.message || "Skeleton could not be loaded";
+              animationInfo.textContent = typeof error === "string" ? error : error?.message || "Skeleton could not be loaded";
               setStatus("Skeleton unavailable");
             }
           } finally {
@@ -1304,6 +1363,8 @@
           if (wadMode && !activeSkeletonHash) { animationInfo.textContent = "Choose a skeleton first"; return; }
           const clip = clips.find((item) => (wadMode ? item.hash : item.path) === selectedKey);
           if (!clip || !loadedPackage?.nativePath) return;
+          mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
+          playButton.textContent = "Play";
           setStatus(`Loading ${clip.name} animation`);
           playButton.disabled = true;
           skeletonSelect.disabled = wadMode;
@@ -1311,20 +1372,32 @@
             const animation = wadMode
               ? await window.__TAURI__.core.invoke("read_package_wad_animation_preview", {
                   sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath,
-                  animationHash: clip.hash, skeletonHash: activeSkeletonHash
+                  animationHash: clip.hash,
+                  skeletonHashes: [activeSkeletonHash, ...wadSkeletons.map((rig) => rig.hash).filter((hash) => hash !== activeSkeletonHash)],
+                  animationName: clip.name
                 })
               : await window.__TAURI__.core.invoke("read_package_animation_preview", {
                   sourcePath: loadedPackage.nativePath, animationPath: clip.path,
                   skeletonPath: bundle.skeletonPath
                 });
             if (request !== previewRequest || currentModelController !== mesh || sequence !== clipLoadSequence) return;
+            if (wadMode && animation.matchedSkeletonHash && animation.matchedSkeletonHash !== activeSkeletonHash) {
+              const matchedSkeleton = await window.__TAURI__.core.invoke("read_package_wad_skeleton_preview", {
+                sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath, hash: animation.matchedSkeletonHash
+              });
+              if (request !== previewRequest || currentModelController !== mesh || sequence !== clipLoadSequence) return;
+              activeSkeleton = matchedSkeleton;
+              activeSkeletonHash = animation.matchedSkeletonHash;
+              skeletonSelect.value = activeSkeletonHash;
+              mesh.setSkeleton(matchedSkeleton);
+            }
             mesh.setAnimation(animation); mesh.setPlaying(true); isPlaying = true;
             playButton.textContent = "Pause";
             animationInfo.textContent = `${animation.name} · ${animation.duration.toFixed(1)}s · ${animation.fps.toFixed(0)} fps`;
             setStatus(`${animation.name} animation ready`);
           } catch (error) {
             if (request === previewRequest && sequence === clipLoadSequence) {
-              animationInfo.textContent = error.message || "Animation could not be loaded";
+              animationInfo.textContent = typeof error === "string" ? error : error?.message || "Animation could not be loaded";
               setStatus("Animation unavailable");
             }
           } finally {
@@ -1362,6 +1435,62 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = "3D mesh preview";
       setStatus("3D model ready");
+      const textureEntry = bundle?.textureEntry;
+      if (textureEntry) {
+        skinTextureControl.classList.remove("hidden");
+        skinTextureSwitch.classList.add("off");
+        skinTextureSwitch.disabled = false;
+        skinTextureSwitch.setAttribute("aria-checked", "false");
+        let bitmap = null;
+        let textureLoading = false;
+        let textureEnabled = false;
+        const switchTexture = async (enabled) => {
+          if (textureLoading || request !== previewRequest || currentModelController !== mesh) return;
+          if (!enabled) {
+            textureEnabled = false;
+            mesh.setTextured(false);
+            skinTextureSwitch.classList.add("off");
+            skinTextureSwitch.setAttribute("aria-checked", "false");
+            modelHint.textContent = mesh.renderingMode === "software"
+              ? "Software 3D preview · drag to rotate · scroll to zoom · double-click to reset"
+              : "3D model · drag to rotate · scroll to zoom · double-click to reset";
+            setStatus("Skin texture off");
+            return;
+          }
+          textureLoading = true;
+          skinTextureSwitch.disabled = true;
+          skinTextureSwitch.setAttribute("aria-busy", "true");
+          setStatus("Loading skin texture");
+          try {
+            if (!bitmap) bitmap = await makeTextureBitmap(textureEntry);
+            if (request !== previewRequest || currentModelController !== mesh) { bitmap.close?.(); return; }
+            mesh.setTexture(bitmap);
+            if (!mesh.setTextured(true)) throw new Error("This graphics device could not apply the skin texture.");
+            textureEnabled = true;
+            skinTextureSwitch.classList.remove("off");
+            skinTextureSwitch.setAttribute("aria-checked", "true");
+            modelHint.textContent = mesh.renderingMode === "software"
+              ? "Textured software preview · drag to rotate · scroll to zoom · double-click to reset"
+              : "Textured 3D model · drag to rotate · scroll to zoom · double-click to reset";
+            setStatus("Skin texture on");
+          } catch (error) {
+            textureEnabled = false;
+            skinTextureSwitch.classList.add("off");
+            skinTextureSwitch.setAttribute("aria-checked", "false");
+            mesh.setTextured(false);
+            modelHint.textContent = `Skin texture unavailable: ${typeof error === "string" ? error : error?.message || "unknown error"}`;
+            setStatus("Skin texture unavailable");
+          } finally {
+            textureLoading = false;
+            if (request === previewRequest && currentModelController === mesh) {
+              skinTextureSwitch.disabled = false;
+              skinTextureSwitch.removeAttribute("aria-busy");
+            }
+          }
+        };
+        skinTextureSwitch.onclick = () => switchTexture(!textureEnabled);
+        switchTexture(true);
+      }
     };
     const selectPackageEntry = async (entry, row) => {
       const request = ++previewRequest;
@@ -1372,6 +1501,8 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = "Loading selected asset…";
       document.getElementById("visualControls").classList.add("hidden");
+      document.getElementById("skinTextureControl").classList.add("hidden");
+      document.getElementById("skinTextureSwitch").onclick = null;
       document.getElementById("assetReadOnly").classList.remove("hidden");
       document.getElementById("inspectEyebrow").textContent = entry.format === "wad-chunk" ? "WAD asset" : "Package entry";
       const displayPath = entry.displayPath || entry.path;
@@ -1454,7 +1585,8 @@
             mode: "wad",
             wadPath: currentWadView.sourceEntry.path,
             skeletons: skeletons.map((item, index) => ({ hash: item.hash, name: item.path || `Skeleton ${index + 1} · 0x${item.hash}` })),
-            animations: animations.map((item, index) => ({ hash: item.hash, name: item.path || `Animation ${index + 1} · 0x${item.hash}` }))
+            animations: animations.map((item, index) => ({ hash: item.hash, name: item.path || `Animation ${index + 1} · 0x${item.hash}` })),
+            textureEntry: findModelTextureEntry(entry)
           };
           showModelPreview(new Uint8Array(bytes), entry, request, bundle);
           return;
