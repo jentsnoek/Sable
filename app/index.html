@@ -1148,8 +1148,10 @@
       message.classList.add("hidden");
       await image.decode();
       if (request !== previewRequest) return;
-      await repairTransparentTexturePreview(image);
-      if (request !== previewRequest) return;
+      if (textureType === "TEX") {
+        await repairTransparentTexturePreview(image);
+        if (request !== previewRequest) return;
+      }
       fitAssetPreviewImage(image);
       const dimensions = `${image.naturalWidth}×${image.naturalHeight}`;
       document.getElementById("inspectTag").textContent = `${textureType} ${dimensions}`;
@@ -1157,7 +1159,7 @@
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${dimensions}`;
       document.getElementById("assetOverlay").classList.add("is-visible");
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
-      if (previewLabel) previewLabel.textContent = `TEX preview · ${dimensions}`;
+      if (previewLabel) previewLabel.textContent = `${textureType} preview · ${dimensions}`;
     };
     const showTexturePreview = async (bytes, entry, request) => {
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
@@ -1376,6 +1378,12 @@
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
       try {
+        if (isDesktopApp && loadedPackage?.nativePath && fileExtension(entry.path) === ".dds") {
+          await showNativeTexturePreview(entry, request);
+          if (request !== previewRequest) return;
+          setStatus("DDS preview ready");
+          return;
+        }
         if (entry.format === "wad-chunk" && (entry.assetType === "Textures" || [".tex", ".dds"].includes(fileExtension(entry.path)))) {
           if (!currentWadView) throw new Error("Go back to the package and open the WAD again.");
           const data = await readWadChunk(currentWadView.bytes, entry);

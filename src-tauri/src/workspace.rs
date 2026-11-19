@@ -980,10 +980,26 @@ fn preview_wad_texture(
 }
 
 fn decode_dds_preview(bytes: &[u8], display_path: &str) -> Result<TexturePreviewResult, String> {
-    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Dds)
+    if !bytes.starts_with(b"DDS ") {
+        return Err(format!("This is not a DDS texture: {display_path}"));
+    }
+    let dds = image_dds::ddsfile::Dds::read(&mut Cursor::new(bytes))
+        .map_err(|error| format!("Could not read DDS texture {display_path}: {error}"))?;
+    let width = dds.get_width();
+    let height = dds.get_height();
+    let pixel_count = u64::from(width) * u64::from(height);
+    if width == 0 || height == 0 || pixel_count > 20_000_000 {
+        return Err(format!(
+            "This DDS texture has dimensions Sable cannot safely preview: {display_path}"
+        ));
+    }
+    let surface = image_dds::SurfaceRgba8::decode_layers_mipmaps_dds(&dds, 0..1, 0..1)
         .map_err(|error| format!("Could not decode DDS texture {display_path}: {error}"))?;
+    let decoded = surface
+        .into_image()
+        .map_err(|error| format!("Could not convert DDS texture {display_path}: {error}"))?;
     let mut output = Cursor::new(Vec::new());
-    decoded
+    image::DynamicImage::ImageRgba8(decoded)
         .write_to(&mut output, image::ImageFormat::Png)
         .map_err(|error| format!("Could not encode DDS preview: {error}"))?;
     Ok(TexturePreviewResult {
