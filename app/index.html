@@ -130,6 +130,10 @@
     .asset-model { flex: 1 1 auto; min-height: 0; width: 100%; border: 1px solid #51424c; border-radius: 7px; background: #171319; cursor: grab; touch-action: none; }
     .asset-model:active { cursor: grabbing; }
     .model-hint { flex: 0 0 auto; color: var(--muted); font-size: 10px; text-align: center; }
+    .model-controls { flex: 0 0 auto; max-width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 10px; }
+    .model-controls label { display: inline-flex; align-items: center; gap: 6px; }
+    .model-controls select { max-width: 240px; padding: 5px 8px; border: 1px solid #51424c; border-radius: 6px; color: var(--text); background: #211a23; font: inherit; }
+    #modelAnimationInfo { color: var(--soft); font-variant-numeric: tabular-nums; }
     .asset-message { max-width: 390px; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.6; }
     .map { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #40554a 0, #2c423a 25%, #21372f 53%, #172723 100%); }
     .map::before { content: ""; position: absolute; width: 50%; height: 75%; left: 25%; top: 14%; transform: rotate(-30deg); border: 2px solid #86947b30; border-radius: 40% 60% 55% 45%; background: linear-gradient(135deg, #77795018, #1b282323 45%, #9e94601a); box-shadow: 0 0 0 38px #111a1733, 0 0 0 76px #b6ad6820; }
@@ -320,7 +324,7 @@
           <div class="canvas-label"><span>Preview</span><span>Select a file from the library</span></div>
           <div class="game-preview no-package" id="gamePreview">
             <div class="empty-canvas" id="emptyCanvas"><span class="welcome-logo-frame"><img class="welcome-logo" src="" alt=""></span><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a .fantome or .modpkg to browse its files, preview supported assets, and unpack a working copy.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod</button><div class="empty-note">Your original download stays untouched.</div></div>
-            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><canvas id="assetModel" class="asset-model hidden" aria-label="Rotatable 3D model preview"></canvas><div id="modelHint" class="model-hint hidden">Untextured mesh · drag to rotate · scroll to zoom · double-click to reset</div><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
+            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><canvas id="assetModel" class="asset-model hidden" aria-label="Rotatable 3D model preview"></canvas><div class="model-controls hidden" id="modelControls"><label id="modelSkeletonLabel" class="hidden">Skeleton<select id="modelSkeleton" aria-label="Select model skeleton"></select></label><label>Animation<select id="modelAnimation" aria-label="Select model animation"></select></label><button class="btn quiet" id="modelPlay" type="button">Play</button><label>Speed<select id="modelSpeed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><span id="modelAnimationInfo">Bind pose</span></div><div id="modelHint" class="model-hint hidden">3D model · drag to rotate · scroll to zoom · double-click to reset</div><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
           </div>
         </div>
       </section>
@@ -354,6 +358,7 @@
     let activeWorkspacePath = localStorage.getItem("sable.workspacePath") || null;
     let currentWadView = null;
     let currentAssetUrl = null;
+    let currentModelController = null;
     let previewRequest = 0;
     let fzstdLoadPromise = null;
     const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -381,6 +386,10 @@
     };
     const entryKind = (path, assetType = "") => {
       if (assetType === "Textures") return "TEX";
+      if (assetType === "Models") return "SKN";
+      if (assetType === "Skeletons") return "SKL";
+      if (assetType === "Animations") return "ANM";
+      if (assetType === "Static models") return "SCB";
       if (assetType === "Models & animation") return "MODEL";
       if (assetType === "Audio") return "AUDIO";
       if (/\.wad(?:\.client)?$/i.test(path)) return "WAD";
@@ -530,8 +539,10 @@
     const identifyWadAsset = (bytes) => {
       const magic = new TextDecoder().decode(bytes.subarray(0, 4));
       if (magic === "TEX\0" || magic === "DDS ") return "Textures";
-      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return "Models & animation";
-      if (["SKN\0", "SKL\0", "ANM\0", "SCB\0", "SCO\0"].includes(magic)) return "Models & animation";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return "Models";
+      if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return "Skeletons";
+      if (bytes.length >= 8 && (magic === "r3d2" && (String.fromCharCode(...bytes.subarray(4, 8)) === "canm" || String.fromCharCode(...bytes.subarray(4, 8)) === "anmd"))) return "Animations";
+      if (magic === "SCB\0" || magic === "SCO\0") return "Static models";
       if (magic === "PROP" || magic === "PTCH") return "Game data";
       if (magic === "BKHD" || magic === "RIFF" || magic === "WPK\0") return "Audio";
       if (magic.startsWith("RW")) return "WAD archives";
@@ -540,7 +551,7 @@
     };
     const scanWadEntries = async (bytes, wad, request, wadPath) => {
       if (isDesktopApp && loadedPackage?.nativePath) {
-        setStatus("Finding TEX files in the WAD…");
+        setStatus("Classifying WAD assets…");
         const assets = await window.__TAURI__.core.invoke("inspect_package_wad_assets", {
           sourcePath: loadedPackage.nativePath,
           wadPath
@@ -847,7 +858,7 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["HUD", "Champions", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
+    const assetGroupOrder = ["HUD", "Champions", "Models", "Skeletons", "Animations", "Static models", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
     const hudGroupFor = (sourcePath) => {
       const path = sourcePath.replace(/\\/g, "/").toLowerCase();
       const parts = path.split("/");
@@ -874,8 +885,9 @@
         if (parts[i] === "champions" || parts[i] === "characters") { champion = parts[i + 1].replace(/\.wad(?:\.client)?$/i, ""); break; }
       }
       const titleCase = (value) => value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-      if (entry.format === "wad-chunk" && entry.assetType === "Models & animation") {
-        return champion ? "Champions · " + titleCase(champion) + " · Models" : "Models & animation";
+      if (entry.format === "wad-chunk" && ["Models", "Skeletons", "Animations", "Static models"].includes(entry.assetType)) {
+        const label = ({ Models: "Models", Skeletons: "Skeletons", Animations: "Animations", "Static models": "Static models" })[entry.assetType];
+        return champion ? "Champions · " + titleCase(champion) + " · " + label : label;
       }
       const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
       if (isHud) return hudGroupFor(entry.path);
@@ -901,7 +913,7 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "TEX textures and SKN models are marked by type. Some WAD entries use hashed names."
+        ? "WAD chunks are grouped by detected type. Search a hash or expand a group to inspect its contents."
         : "Files are grouped by their role. Open a TEX texture or SKN model to preview it.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
@@ -952,8 +964,10 @@
       : readZipEntry(loadedPackage.buffer, entry, maxBytes);
     const clearModelPreview = () => {
       window.SableModelPreview.clear();
+      currentModelController = null;
       document.getElementById("assetModel").classList.add("hidden");
       document.getElementById("modelHint").classList.add("hidden");
+      document.getElementById("modelControls").classList.add("hidden");
     };
     const repairTransparentTexturePreview = async (image) => {
       try {
@@ -1048,7 +1062,7 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = `TEX preview · ${preview.width}×${preview.height}`;
     };
-    const showModelPreview = (bytes, entry, request) => {
+    const showModelPreview = (bytes, entry, request, bundle = null) => {
       if (request !== previewRequest) return;
       const canvas = document.getElementById("assetModel");
       const message = document.getElementById("assetMessage");
@@ -1057,9 +1071,141 @@
       message.classList.add("hidden");
       canvas.classList.remove("hidden");
       document.getElementById("modelHint").classList.remove("hidden");
-      const mesh = window.SableModelPreview.show(canvas, bytes);
+      const skeleton = bundle?.skeleton || null;
+      const mesh = window.SableModelPreview.show(canvas, bytes, skeleton);
+      currentModelController = mesh;
+      const controls = document.getElementById("modelControls");
+      const skeletonLabel = document.getElementById("modelSkeletonLabel");
+      const skeletonSelect = document.getElementById("modelSkeleton");
+      const animationSelect = document.getElementById("modelAnimation");
+      const playButton = document.getElementById("modelPlay");
+      const speedSelect = document.getElementById("modelSpeed");
+      const animationInfo = document.getElementById("modelAnimationInfo");
+      controls.classList.add("hidden");
+      skeletonLabel.classList.add("hidden");
+      skeletonSelect.disabled = false; playButton.disabled = false;
+      skeletonSelect.replaceChildren();
+      animationSelect.replaceChildren();
+      const wadMode = bundle?.mode === "wad";
+      const wadSkeletons = bundle?.skeletons || [];
+      const clips = bundle?.animations || [];
+      const canPlayPackageClips = Boolean(skeleton && bundle?.skeletonPath && clips.length);
+      const canPlayWadClips = Boolean(wadMode && wadSkeletons.length && clips.length);
+      if (canPlayPackageClips || canPlayWadClips) {
+        let activeSkeleton = skeleton;
+        let activeSkeletonHash = null;
+        const bindPose = document.createElement("option"); bindPose.value = ""; bindPose.textContent = "Bind pose";
+        animationSelect.append(bindPose);
+        for (const clip of clips) {
+          const option = document.createElement("option");
+          option.value = wadMode ? clip.hash : clip.path;
+          option.textContent = wadMode ? clip.name : `${clip.name} · ${clip.duration.toFixed(1)}s · ${clip.jointCount} joints`;
+          animationSelect.append(option);
+        }
+        if (wadMode) {
+          skeletonLabel.classList.remove("hidden");
+          for (const rig of wadSkeletons) {
+            const option = document.createElement("option"); option.value = rig.hash; option.textContent = rig.name;
+            skeletonSelect.append(option);
+          }
+          skeletonSelect.value = wadSkeletons[0].hash;
+        }
+        controls.classList.remove("hidden");
+        let isPlaying = false;
+        animationInfo.textContent = wadMode ? `${wadSkeletons.length} skeletons · ${clips.length} animations in WAD` : `${skeleton.joints.length} joints · ${clips.length} clips`;
+        let rigLoadSequence = 0;
+        let clipLoadSequence = 0;
+        const loadWadSkeleton = async (hash) => {
+          if (!hash || !wadMode || !loadedPackage?.nativePath) return;
+          const sequence = ++rigLoadSequence;
+          clipLoadSequence++;
+          activeSkeleton = null; activeSkeletonHash = null; mesh.setSkeleton(null);
+          animationSelect.value = ""; mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
+          playButton.textContent = "Play"; playButton.disabled = true;
+          setStatus("Loading WAD skeleton");
+          try {
+            const nextSkeleton = await window.__TAURI__.core.invoke("read_package_wad_skeleton_preview", {
+              sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath, hash
+            });
+            if (request !== previewRequest || currentModelController !== mesh || sequence !== rigLoadSequence) return;
+            activeSkeleton = nextSkeleton; activeSkeletonHash = hash; mesh.setSkeleton(nextSkeleton);
+            animationInfo.textContent = `${nextSkeleton.joints.length} joints · ${clips.length} WAD animations`;
+            setStatus("WAD skeleton ready");
+          } catch (error) {
+            if (request === previewRequest && sequence === rigLoadSequence) {
+              animationInfo.textContent = error.message || "Skeleton could not be loaded";
+              setStatus("Skeleton unavailable");
+            }
+          } finally {
+            if (sequence === rigLoadSequence) playButton.disabled = false;
+          }
+        };
+        const selectClip = async () => {
+          const sequence = ++clipLoadSequence;
+          const selectedKey = animationSelect.value;
+          if (!selectedKey) {
+            mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
+            playButton.textContent = "Play";
+            playButton.disabled = false; skeletonSelect.disabled = false;
+            animationInfo.textContent = wadMode ? `${activeSkeleton?.joints.length || 0} joints · bind pose` : "Bind pose";
+            return;
+          }
+          if (wadMode && !activeSkeletonHash) { animationInfo.textContent = "Choose a skeleton first"; return; }
+          const clip = clips.find((item) => (wadMode ? item.hash : item.path) === selectedKey);
+          if (!clip || !loadedPackage?.nativePath) return;
+          setStatus(`Loading ${clip.name} animation`);
+          playButton.disabled = true;
+          skeletonSelect.disabled = wadMode;
+          try {
+            const animation = wadMode
+              ? await window.__TAURI__.core.invoke("read_package_wad_animation_preview", {
+                  sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath,
+                  animationHash: clip.hash, skeletonHash: activeSkeletonHash
+                })
+              : await window.__TAURI__.core.invoke("read_package_animation_preview", {
+                  sourcePath: loadedPackage.nativePath, animationPath: clip.path,
+                  skeletonPath: bundle.skeletonPath
+                });
+            if (request !== previewRequest || currentModelController !== mesh || sequence !== clipLoadSequence) return;
+            mesh.setAnimation(animation); mesh.setPlaying(true); isPlaying = true;
+            playButton.textContent = "Pause";
+            animationInfo.textContent = `${animation.name} · ${animation.duration.toFixed(1)}s · ${animation.fps.toFixed(0)} fps`;
+            setStatus(`${animation.name} animation ready`);
+          } catch (error) {
+            if (request === previewRequest && sequence === clipLoadSequence) {
+              animationInfo.textContent = error.message || "Animation could not be loaded";
+              setStatus("Animation unavailable");
+            }
+          } finally {
+            if (sequence === clipLoadSequence) { playButton.disabled = false; skeletonSelect.disabled = false; }
+          }
+        };
+        skeletonSelect.onchange = () => loadWadSkeleton(skeletonSelect.value);
+        animationSelect.onchange = async () => {
+          await selectClip();
+        };
+        playButton.onclick = () => {
+          if (!animationSelect.value) {
+            const firstClip = clips[0];
+            animationSelect.value = wadMode ? firstClip.hash : firstClip.path;
+            animationSelect.dispatchEvent(new Event("change"));
+            return;
+          }
+          isPlaying = !isPlaying;
+          mesh.setPlaying(isPlaying);
+          playButton.textContent = isPlaying ? "Pause" : "Play";
+        };
+        speedSelect.onchange = () => mesh.setSpeed(speedSelect.value);
+        if (canPlayWadClips) loadWadSkeleton(skeletonSelect.value);
+      } else {
+        skeletonSelect.onchange = null; animationSelect.onchange = null; playButton.onclick = null; speedSelect.onchange = null;
+        document.getElementById("modelHint").textContent = skeleton
+          ? "Skeleton found · no matching animation clips are included in this package"
+          : "Untextured mesh · drag to rotate · scroll to zoom · double-click to reset";
+      }
       document.getElementById("inspectTag").textContent = "3D SKN";
-      document.getElementById("selectedPath").textContent = `${mesh.sourceVertices.toLocaleString()} vertices · ${mesh.triangles.toLocaleString()} triangles · ${mesh.parts} parts · ${entry.displayPath || entry.path}`;
+      const rigNote = skeleton ? ` · ${skeleton.joints.length} joints` : bundle?.skeletons?.length ? ` · ${bundle.skeletons.length} skeletons available` : "";
+      document.getElementById("selectedPath").textContent = `${mesh.sourceVertices.toLocaleString()} vertices · ${mesh.triangles.toLocaleString()} triangles · ${mesh.parts} parts${rigNote} · ${entry.displayPath || entry.path}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · 3D model`;
       document.getElementById("assetOverlay").classList.add("is-visible");
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
@@ -1095,20 +1241,29 @@
           return;
         }
         if (isDesktopApp && loadedPackage?.nativePath && entry.format !== "wad-chunk" && fileExtension(entry.path) === ".skn") {
-          const bytes = await window.__TAURI__.core.invoke("read_package_model", {
+          const bundle = await window.__TAURI__.core.invoke("read_package_model_preview_bundle", {
             sourcePath: loadedPackage.nativePath,
             entryPath: entry.displayPath || entry.path
           });
-          showModelPreview(new Uint8Array(bytes), entry, request);
+          bundle.modelBytes = new Uint8Array(bundle.modelBytes);
+          showModelPreview(bundle.modelBytes, entry, request, bundle);
           return;
         }
-        if (isDesktopApp && loadedPackage?.nativePath && entry.format === "wad-chunk" && entry.assetType === "Models & animation") {
+        if (isDesktopApp && loadedPackage?.nativePath && entry.format === "wad-chunk" && entry.assetType === "Models") {
           const bytes = await window.__TAURI__.core.invoke("read_package_wad_model", {
             sourcePath: loadedPackage.nativePath,
             wadPath: currentWadView.sourceEntry.path,
             hash: entry.hash
           });
-          showModelPreview(new Uint8Array(bytes), entry, request);
+          const skeletons = currentWadView.entries.filter((item) => item.assetType === "Skeletons");
+          const animations = currentWadView.entries.filter((item) => item.assetType === "Animations");
+          const bundle = {
+            mode: "wad",
+            wadPath: currentWadView.sourceEntry.path,
+            skeletons: skeletons.map((item, index) => ({ hash: item.hash, name: `Skeleton ${index + 1} · 0x${item.hash}` })),
+            animations: animations.map((item, index) => ({ hash: item.hash, name: `Animation ${index + 1} · 0x${item.hash}` }))
+          };
+          showModelPreview(new Uint8Array(bytes), entry, request, bundle);
           return;
         }
         if (entry.format === "wad-chunk") {
@@ -1225,9 +1380,9 @@
       const magic = String.fromCharCode(...bytes.subarray(0, 4));
       if (magic.slice(0, 3) === "TEX") return "tex";
       if (magic === "DDS ") return "dds";
-      if (magic.slice(0, 3) === "SKN") return "skn";
-      if (magic.slice(0, 3) === "SKL") return "skl";
-      if (magic.slice(0, 3) === "ANM") return "anm";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return "skn";
+      if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return "skl";
+      if (magic === "r3d2" && ["canm", "anmd"].includes(String.fromCharCode(...bytes.subarray(4, 8)))) return "anm";
       if (magic.slice(0, 3) === "SCB") return "scb";
       if (magic.slice(0, 3) === "SCO") return "sco";
       if (magic === "PROP" || magic === "PTCH") return "bin";

@@ -1,5 +1,4 @@
-// League SKN mesh preview. Geometry only: rigging, animation, and material textures
-// require companion files that are not always present in a mod package.
+// League SKN geometry and companion skeleton/animation preview.
 (() => {
   const SKN_MAGIC = 0x00112233;
   const MAX_VERTICES = 250000;
@@ -64,12 +63,14 @@
     if (!vertexCount || vertexCount > MAX_VERTICES || !indexCount || indexCount > MAX_INDICES) {
       throw new Error("This SKN model is too large or empty to preview.");
     }
-    if (flags & 1) take(u16()); // Direct blend index block
+    if (flags & 1) take(u16()); // Direct blend index block length; payload is opaque to the viewer.
     const indicesOffset = take(indexCount * 2);
     const verticesOffset = take(vertexCount * stride);
     if (major >= 2) take(12); // End tab
 
     const positions = new Float32Array(vertexCount * 3);
+    const blendIndices = new Uint8Array(vertexCount * 4);
+    const blendWeights = new Float32Array(vertexCount * 4);
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < vertexCount; i++) {
       const offset = verticesOffset + i * stride;
@@ -80,6 +81,11 @@
         min[axis] = Math.min(min[axis], value);
         max[axis] = Math.max(max[axis], value);
       }
+      for (let slot = 0; slot < 4; slot++) {
+        blendIndices[i * 4 + slot] = view.getUint8(offset + 12 + slot);
+        const weight = view.getFloat32(offset + 16 + slot * 4, true);
+        blendWeights[i * 4 + slot] = Number.isFinite(weight) && weight > 0 ? weight : 0;
+      }
     }
     const center = min.map((value, axis) => (value + max[axis]) / 2);
     const extent = Math.max(...max.map((value, axis) => value - min[axis]));
@@ -89,6 +95,7 @@
     // This keeps the renderer compatible with WebGL 1 and large source meshes.
     const vertices = new Float32Array(indexCount * 9);
     let output = 0, triangles = 0;
+    const sourceIds = [];
     for (let part = 0; part < ranges.length; part++) {
       const range = ranges[part];
       const { startVertex, startIndex } = range;
@@ -106,6 +113,7 @@
           throw new Error("This SKN model has an invalid triangle index.");
         }
         const a = ids.map((id) => id * 3);
+        sourceIds.push(...ids);
         const e1 = [0, 1, 2].map((axis) => positions[a[1] + axis] - positions[a[0] + axis]);
         const e2 = [0, 1, 2].map((axis) => positions[a[2] + axis] - positions[a[0] + axis]);
         const normal = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
@@ -120,7 +128,141 @@
       }
     }
     if (!triangles) throw new Error("This SKN model has no triangles to preview.");
-    return { vertices: vertices.subarray(0, output), triangles, parts: ranges.length, sourceVertices: vertexCount };
+    return {
+      vertices: vertices.subarray(0, output), triangles, parts: ranges.length, sourceVertices: vertexCount,
+      positions, blendIndices, blendWeights, sourceIds: Uint32Array.from(sourceIds), center, scale, flags
+    };
+  };
+
+  const matrixMultiply = (a, b) => {
+    const out = new Float32Array(16);
+    for (let column = 0; column < 4; column++) {
+      const offset = column * 4;
+      for (let row = 0; row < 4; row++) {
+        out[offset + row] = a[row] * b[offset] + a[4 + row] * b[offset + 1] + a[8 + row] * b[offset + 2] + a[12 + row] * b[offset + 3];
+      }
+    }
+    return out;
+  };
+  const matrixFromTrs = (translation, rotation, scale) => {
+    const [x, y, z, w] = rotation;
+    const sx = scale[0], sy = scale[1], sz = scale[2];
+    const x2 = x + x, y2 = y + y, z2 = z + z;
+    const xx = x * x2, xy = x * y2, xz = x * z2;
+    const yy = y * y2, yz = y * z2, zz = z * z2;
+    const wx = w * x2, wy = w * y2, wz = w * z2;
+    return new Float32Array([
+      (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
+      (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
+      (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
+      translation[0], translation[1], translation[2], 1
+    ]);
+  };
+  const transformPoint = (matrix, x, y, z) => [
+    matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12],
+    matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13],
+    matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14]
+  ];
+
+  const deformMesh = (mesh, skeleton, animation, framePosition) => {
+    const joints = skeleton?.joints;
+    if (!joints?.length || !animation?.frames?.length) return;
+    const boundedPosition = Math.max(0, Math.min(animation.frames.length - 1, framePosition));
+    const frameA = Math.min(animation.frames.length - 1, Math.floor(boundedPosition));
+    const frameB = Math.min(animation.frames.length - 1, frameA + 1);
+    const fraction = boundedPosition - frameA;
+    const samplesA = new Map((animation.frames[frameA] || []).map((sample) => [sample.joint, sample]));
+    const samplesB = new Map((animation.frames[frameB] || []).map((sample) => [sample.joint, sample]));
+    const jointIndexById = new Map(joints.map((joint, index) => [joint.id, index]));
+    const local = joints.map((joint, index) => {
+      const a = samplesA.get(index), b = samplesB.get(index);
+      if (!a) return matrixFromTrs(joint.localTranslation, joint.localRotation, joint.localScale);
+      const first = b || a;
+      const rotation = quatSlerp(a.rotation, first.rotation, fraction);
+      const translation = lerp3(a.translation, first.translation, fraction);
+      const scale = lerp3(a.scale, first.scale, fraction);
+      return matrixFromTrs(translation, rotation, scale);
+    });
+    const global = new Array(joints.length);
+    const state = new Uint8Array(joints.length);
+    const resolveGlobal = (index, depth = 0) => {
+      if (global[index]) return global[index];
+      if (state[index] || depth > joints.length) return local[index];
+      state[index] = 1;
+      const parent = jointIndexById.get(joints[index].parentId);
+      global[index] = parent === undefined || parent === index
+        ? local[index]
+        : matrixMultiply(resolveGlobal(parent, depth + 1), local[index]);
+      state[index] = 2;
+      return global[index];
+    };
+    const skinMatrices = joints.map((joint, index) => matrixMultiply(resolveGlobal(index), new Float32Array(joint.inverseBindMatrix)));
+    const rigInfluences = skeleton.influences || [];
+    const skinnedPositions = new Float32Array(mesh.positions.length);
+    for (let vertex = 0; vertex < mesh.sourceVertices; vertex++) {
+      const source = vertex * 3;
+      const bind = [mesh.positions[source], mesh.positions[source + 1], mesh.positions[source + 2]];
+      const result = [0, 0, 0];
+      let total = 0;
+      for (let slot = 0; slot < 4; slot++) {
+        const weight = mesh.blendWeights[vertex * 4 + slot];
+        if (weight <= 0) continue;
+        const rawIndex = mesh.blendIndices[vertex * 4 + slot];
+        const jointId = (mesh.flags & 1) ? rawIndex : rigInfluences[rawIndex];
+        const jointIndex = jointIndexById.get(jointId);
+        if (jointIndex === undefined) continue;
+        const point = transformPoint(skinMatrices[jointIndex], bind[0], bind[1], bind[2]);
+        result[0] += point[0] * weight; result[1] += point[1] * weight; result[2] += point[2] * weight;
+        total += weight;
+      }
+      const target = vertex * 3;
+      if (total > 0) {
+        skinnedPositions[target] = result[0] / total;
+        skinnedPositions[target + 1] = result[1] / total;
+        skinnedPositions[target + 2] = result[2] / total;
+      } else {
+        skinnedPositions[target] = bind[0]; skinnedPositions[target + 1] = bind[1]; skinnedPositions[target + 2] = bind[2];
+      }
+    }
+    const vertices = mesh.vertices;
+    const toView = (id) => {
+      const point = id >= 0 ? id * 3 : 0;
+      return [
+        (skinnedPositions[point] - mesh.center[0]) * mesh.scale,
+        (skinnedPositions[point + 1] - mesh.center[1]) * mesh.scale,
+        (skinnedPositions[point + 2] - mesh.center[2]) * mesh.scale
+      ];
+    };
+    for (let triangle = 0; triangle < mesh.triangles; triangle++) {
+      const offset = triangle * 3;
+      const p0 = toView(mesh.sourceIds[offset]), p1 = toView(mesh.sourceIds[offset + 1]), p2 = toView(mesh.sourceIds[offset + 2]);
+      const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+      const e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+      const normal = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const length = Math.hypot(...normal) || 1;
+      for (let corner = 0; corner < 3; corner++) {
+        const point = [p0, p1, p2][corner];
+        const base = (offset + corner) * 9;
+        vertices[base] = point[0]; vertices[base + 1] = point[1]; vertices[base + 2] = point[2];
+        vertices[base + 3] = normal[0] / length; vertices[base + 4] = normal[1] / length; vertices[base + 5] = normal[2] / length;
+      }
+    }
+  };
+
+  const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const quatSlerp = (a, b, t) => {
+    let cosine = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    let end = b;
+    if (cosine < 0) { cosine = -cosine; end = b.map((value) => -value); }
+    if (cosine > 0.9995) {
+      const q = a.map((value, i) => value + (end[i] - value) * t);
+      const length = Math.hypot(...q) || 1;
+      return q.map((value) => value / length);
+    }
+    const angle = Math.acos(Math.max(-1, Math.min(1, cosine)));
+    const sine = Math.sin(angle) || 1;
+    const left = Math.sin((1 - t) * angle) / sine, right = Math.sin(t * angle) / sine;
+    return a.map((value, i) => value * left + end[i] * right);
   };
 
   let cleanup = null;
@@ -128,7 +270,7 @@
     if (cleanup) cleanup();
     cleanup = null;
   };
-  const show = (canvas, bytes) => {
+  const show = (canvas, bytes, skeleton = null) => {
     clear();
     const mesh = parseSkn(bytes);
     const gl = canvas.getContext("webgl", { antialias: true, alpha: false });
@@ -170,7 +312,7 @@
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error("Could not link the 3D model renderer.");
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.vertices, gl.DYNAMIC_DRAW);
     gl.useProgram(program);
     for (const [name, offset] of [["position", 0], ["normal", 12], ["color", 24]]) {
       const location = gl.getAttribLocation(program, name);
@@ -182,6 +324,8 @@
     const zoomUniform = gl.getUniformLocation(program, "zoom");
     const aspectUniform = gl.getUniformLocation(program, "aspect");
     let yaw = 0.55, pitch = -0.2, zoom = 1, pointer = null;
+    let activeSkeleton = skeleton;
+    let animation = null, animationStart = 0, animationPosition = 0, speed = 1, playing = false, animationFrame = 0, lastAnimationUpdate = 0;
     const render = () => {
       const width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio));
       const height = Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio));
@@ -194,6 +338,74 @@
       gl.uniform1f(yawUniform, yaw); gl.uniform1f(pitchUniform, pitch);
       gl.uniform1f(zoomUniform, zoom); gl.uniform1f(aspectUniform, width / height);
       gl.drawArrays(gl.TRIANGLES, 0, mesh.triangles * 3);
+    };
+    const uploadMesh = () => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, mesh.vertices);
+      render();
+    };
+    const stopAnimationFrame = () => {
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+    };
+    const currentAnimationTime = (timestamp = performance.now()) => {
+      const duration = Math.max(0.001, animation?.duration || 0.001);
+      return (animationPosition + (playing ? (timestamp - animationStart) / 1000 * speed : 0)) % duration;
+    };
+    const tick = (timestamp) => {
+      animationFrame = 0;
+      if (!playing || !animation || !activeSkeleton) return;
+      if (timestamp - lastAnimationUpdate < 1000 / 24) {
+        animationFrame = requestAnimationFrame(tick);
+        return;
+      }
+      lastAnimationUpdate = timestamp;
+      const duration = Math.max(0.001, animation.duration || 0.001);
+      const elapsed = currentAnimationTime(timestamp);
+      deformMesh(mesh, activeSkeleton, animation, elapsed * animation.sampleRate);
+      uploadMesh();
+      animationFrame = requestAnimationFrame(tick);
+    };
+    const setAnimation = (nextAnimation) => {
+      stopAnimationFrame();
+      animation = nextAnimation || null;
+      playing = Boolean(animation && activeSkeleton);
+      animationPosition = 0;
+      if (animation) {
+        animationStart = performance.now();
+        deformMesh(mesh, activeSkeleton, animation, 0);
+        if (playing) animationFrame = requestAnimationFrame(tick);
+      } else {
+        mesh.vertices.set(mesh.bindVertices);
+      }
+      uploadMesh();
+    };
+    const setPlaying = (value) => {
+      if (!animation || !activeSkeleton) return;
+      const next = Boolean(value);
+      if (playing && !next) animationPosition = currentAnimationTime();
+      playing = next;
+      if (playing) {
+        animationStart = performance.now();
+        if (!animationFrame) animationFrame = requestAnimationFrame(tick);
+      } else stopAnimationFrame();
+    };
+    const setSpeed = (value) => {
+      const position = currentAnimationTime();
+      speed = Math.max(0.25, Math.min(2, Number(value) || 1));
+      animationPosition = position;
+      if (playing) animationStart = performance.now();
+    };
+    const setSkeleton = (nextSkeleton) => {
+      activeSkeleton = nextSkeleton || null;
+      if (animation && activeSkeleton) {
+        deformMesh(mesh, activeSkeleton, animation, 0);
+        if (playing) animationStart = performance.now();
+        uploadMesh();
+      } else if (!activeSkeleton) {
+        mesh.vertices.set(mesh.bindVertices);
+        uploadMesh();
+      }
     };
     const down = (event) => { pointer = { x: event.clientX, y: event.clientY }; canvas.setPointerCapture(event.pointerId); };
     const move = (event) => {
@@ -215,6 +427,8 @@
     const observer = new ResizeObserver(render);
     observer.observe(canvas);
     cleanup = () => {
+      playing = false;
+      stopAnimationFrame();
       observer.disconnect();
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
@@ -225,8 +439,9 @@
       gl.deleteBuffer(buffer); gl.deleteProgram(program);
       gl.deleteShader(vertexShader); gl.deleteShader(fragmentShader);
     };
+    mesh.bindVertices = mesh.vertices.slice();
     render();
-    return mesh;
+    return { ...mesh, setAnimation, setPlaying, setSpeed, setSkeleton };
   };
   window.SableModelPreview = { parseSkn, show, clear };
 })();
