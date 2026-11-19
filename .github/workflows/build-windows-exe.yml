@@ -1,6 +1,13 @@
 name: Build Windows executable
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "src-tauri/**"
+      - ".github/workflows/build-windows-exe.yml"
   push:
     branches:
       - main

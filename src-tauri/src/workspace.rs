@@ -5,6 +5,7 @@ use ltk_mod_project::{
 };
 use ltk_anim::{Animation, AnimationAsset, RigResource};
 use ltk_hash::{BinHash, Hash as _};
+use ltk_meta::Bin as PropertyBin;
 use ltk_texture::{
     tex::{EncodeFormat, EncodeOptions, Format, MipmapFilter},
     Tex,
@@ -13,6 +14,7 @@ use ltk_wad::{Wad, WadHash};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::{BufReader, BufWriter, Cursor},
     path::{Component, Path, PathBuf},
@@ -288,6 +290,15 @@ fn preview_package_texture_blocking(
         return Err(format!("More than one TEX file matches this path: {entry_path}"));
     }
 
+    if requested.ends_with(".dds") {
+        if let Ok(dds_file) = find_project_file(&project_dir, &entry_path) {
+            let bytes = fs::read(&dds_file).map_err(|error| format!("Could not read DDS texture: {error}"))?;
+            if bytes.starts_with(b"DDS ") {
+                return decode_dds_preview(&bytes, &entry_path);
+            }
+        }
+    }
+
     preview_wad_texture(&workspace, &requested, &entry_path)
 }
 
@@ -295,6 +306,7 @@ fn preview_package_texture_blocking(
 #[serde(rename_all = "camelCase")]
 pub struct WadAssetEntry {
     hash: String,
+    path: Option<String>,
     size: usize,
     asset_type: String,
     extension: String,
@@ -387,15 +399,26 @@ fn inspect_package_wad_assets_blocking(
 
     let chunks: Vec<_> = wad.chunks().iter().copied().collect();
     let mut assets = Vec::new();
+    let mut resolved_paths = HashMap::new();
     for chunk in chunks {
         if chunk.uncompressed_size() > 256 * 1024 * 1024 {
             continue;
         }
         if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
+            if bytes.starts_with(b"PROP") || bytes.starts_with(b"PTCH") {
+                for path in extract_wad_path_references(&bytes) {
+                    let referenced_hash = WadHash::hash_str(&path);
+                    if wad.chunks().contains_key(&referenced_hash) {
+                        resolved_paths.entry(format!("{referenced_hash:016x}")).or_insert(path);
+                    }
+                }
+            }
             let kind = classify_wad_asset(&bytes);
             if let Some((asset_type, extension)) = kind {
+                let hash = format!("{:016x}", chunk.path_hash());
                 assets.push(WadAssetEntry {
-                    hash: format!("{:016x}", chunk.path_hash()),
+                    path: resolved_paths.get(&hash).cloned(),
+                    hash,
                     size: bytes.len(),
                     asset_type: asset_type.to_owned(),
                     extension: extension.to_owned(),
@@ -403,7 +426,46 @@ fn inspect_package_wad_assets_blocking(
             }
         }
     }
+    for asset in &mut assets {
+        if asset.path.is_none() {
+            asset.path = resolved_paths.get(&asset.hash).cloned();
+        }
+    }
     Ok(assets)
+}
+
+fn extract_wad_path_references(bytes: &[u8]) -> Vec<String> {
+    const PATH_PREFIXES: [&str; 7] = [
+        "assets/", "data/", "characters/", "maps/", "map/", "sounds/", "skins/",
+    ];
+    const EXTENSIONS: [&str; 14] = [
+        ".wad.client", ".troybin", ".skn", ".skl", ".anm", ".tex", ".dds", ".scb",
+        ".sco", ".bin", ".bnk", ".wpk", ".wem", ".png",
+    ];
+    let is_path_byte = |byte: u8| byte.is_ascii_alphanumeric() || b"_./\\-".contains(&byte);
+    let mut references = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut offset = 0;
+
+    while offset < bytes.len() {
+        while offset < bytes.len() && !is_path_byte(bytes[offset]) { offset += 1; }
+        let start = offset;
+        while offset < bytes.len() && is_path_byte(bytes[offset]) { offset += 1; }
+        if start == offset { continue; }
+        let Ok(token) = std::str::from_utf8(&bytes[start..offset]) else { continue; };
+        let lower = token.to_ascii_lowercase();
+        let Some(path_start) = PATH_PREFIXES.iter().filter_map(|prefix| lower.find(prefix)).min() else { continue; };
+        let candidate = &token[path_start..];
+        let candidate_lower = candidate.to_ascii_lowercase();
+        let end = EXTENSIONS.iter()
+            .filter_map(|extension| candidate_lower.find(extension).map(|index| index + extension.len()))
+            .min();
+        let Some(end) = end else { continue; };
+        let path = candidate[..end].replace('\\', "/");
+        if path.matches('/').count() < 2 || !seen.insert(path.to_ascii_lowercase()) { continue; }
+        references.push(path);
+    }
+    references
 }
 
 fn classify_wad_asset(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
@@ -418,13 +480,28 @@ fn classify_wad_asset(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     }
     if bytes.starts_with(b"SCB\0") { return Some(("Static models", "scb")); }
     if bytes.starts_with(b"SCO\0") { return Some(("Static models", "sco")); }
-    if bytes.starts_with(b"PROP") || bytes.starts_with(b"PTCH") { return Some(("Game data", "bin")); }
+    if bytes.starts_with(b"PROP") {
+        if is_ability_property_bin(bytes) { return Some(("Abilities & VFX", "bin")); }
+        return Some(("Game data", "bin"));
+    }
+    if bytes.starts_with(b"PTCH") { return Some(("Game data", "bin")); }
     if bytes.starts_with(b"BKHD") { return Some(("Audio", "bnk")); }
     if bytes.starts_with(b"RIFF") { return Some(("Audio", "wem")); }
     if bytes.starts_with(b"WPK\0") { return Some(("Audio", "wpk")); }
     if bytes.starts_with(b"RW") { return Some(("WAD archives", "wad")); }
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) { return Some(("Images", "png")); }
     None
+}
+
+fn is_ability_property_bin(bytes: &[u8]) -> bool {
+    let mut cursor = Cursor::new(bytes);
+    let Ok(bin) = PropertyBin::from_reader(&mut cursor) else { return false; };
+    let ability_classes = [
+        BinHash::from("SpellDataResource").0,
+        BinHash::from("SpellObjectDefinitionData").0,
+        BinHash::from("VfxSystemDefinitionData").0,
+    ];
+    bin.objects.values().any(|object| ability_classes.contains(&object.class_hash.0))
 }
 
 #[tauri::command]
@@ -845,8 +922,14 @@ fn preview_wad_texture(
 ) -> Result<TexturePreviewResult, String> {
     let (wad_relative, texture_name) = requested
         .rsplit_once('/')
-        .ok_or_else(|| format!("Sable could not locate this TEX texture: {display_path}"))?;
-    let hash_name = texture_name.strip_suffix(".tex").unwrap_or(texture_name);
+        .ok_or_else(|| format!("Sable could not locate this texture: {display_path}"))?;
+    let (hash_name, is_dds) = if let Some(name) = texture_name.strip_suffix(".dds") {
+        (name, true)
+    } else if let Some(name) = texture_name.strip_suffix(".tex") {
+        (name, false)
+    } else {
+        return Err(format!("This WAD texture path must end in .tex or .dds: {display_path}"));
+    };
     let hash_text = hash_name.strip_prefix("0x").unwrap_or(hash_name);
     let hash: WadHash = hash_text
         .parse()
@@ -866,6 +949,12 @@ fn preview_wad_texture(
     let tex_bytes = wad
         .load_chunk_decompressed(&chunk)
         .map_err(|error| format!("Could not decompress this WAD texture: {error}"))?;
+    if is_dds {
+        if !tex_bytes.starts_with(b"DDS ") {
+            return Err(format!("This WAD entry is not a DDS texture: {display_path}"));
+        }
+        return decode_dds_preview(&tex_bytes, display_path);
+    }
     if !tex_bytes.starts_with(b"TEX\0") {
         return Err(format!("This WAD entry is not a TEX texture: {display_path}"));
     }
@@ -883,6 +972,19 @@ fn preview_wad_texture(
         .write_to(&mut output, image::ImageFormat::Png)
         .map_err(|error| format!("Could not encode WAD texture preview: {error}"))?;
 
+    Ok(TexturePreviewResult {
+        png_bytes: output.into_inner(),
+        texture_path: display_path.to_owned(),
+    })
+}
+
+fn decode_dds_preview(bytes: &[u8], display_path: &str) -> Result<TexturePreviewResult, String> {
+    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Dds)
+        .map_err(|error| format!("Could not decode DDS texture {display_path}: {error}"))?;
+    let mut output = Cursor::new(Vec::new());
+    decoded
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not encode DDS preview: {error}"))?;
     Ok(TexturePreviewResult {
         png_bytes: output.into_inner(),
         texture_path: display_path.to_owned(),

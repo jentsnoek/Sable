@@ -385,7 +385,7 @@
       return dot < 0 ? "" : name.slice(dot).toLowerCase();
     };
     const entryKind = (path, assetType = "") => {
-      if (assetType === "Textures") return "TEX";
+      if (assetType === "Textures") return fileExtension(path) === ".dds" ? "DDS" : "TEX";
       if (assetType === "Models") return "SKN";
       if (assetType === "Skeletons") return "SKL";
       if (assetType === "Animations") return "ANM";
@@ -549,6 +549,21 @@
       if (bytes[0] === 0x89 && magic.slice(1, 4) === "PNG") return "Images";
       return "Other WAD entries";
     };
+    const identifyWadExtension = (bytes) => {
+      const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+      if (magic.startsWith("TEX\0")) return ".tex";
+      if (magic.startsWith("DDS ")) return ".dds";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return ".skn";
+      if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return ".skl";
+      if (magic.startsWith("r3d2canm") || magic.startsWith("r3d2anmd")) return ".anm";
+      if (magic.startsWith("SCB\0")) return ".scb";
+      if (magic.startsWith("SCO\0")) return ".sco";
+      if (magic.startsWith("PROP") || magic.startsWith("PTCH")) return ".bin";
+      if (magic.startsWith("BKHD")) return ".bnk";
+      if (magic.startsWith("WPK\0")) return ".wpk";
+      if (magic.startsWith("RIFF")) return ".wem";
+      return "";
+    };
     const scanWadEntries = async (bytes, wad, request, wadPath) => {
       if (isDesktopApp && loadedPackage?.nativePath) {
         setStatus("Classifying WAD assets…");
@@ -562,7 +577,7 @@
           const asset = byHash.get(entry.hash.toLowerCase());
           if (asset) {
             entry.assetType = asset.assetType;
-            entry.path = `0x${entry.hash}.${asset.extension}`;
+            entry.path = asset.path || `0x${entry.hash}.${asset.extension}`;
             entry.displayPath = `${wadPath} / ${entry.path}`;
             entry.wad = wadPath;
           } else {
@@ -579,7 +594,14 @@
       for (let i = 0; i < wad.entries.length; i++) {
         if (request !== previewRequest) return false;
         const entry = wad.entries[i];
-        try { entry.assetType = identifyWadAsset(await readWadChunk(bytes, entry)); }
+        try {
+          const assetBytes = await readWadChunk(bytes, entry);
+          entry.assetType = identifyWadAsset(assetBytes);
+          const extension = identifyWadExtension(assetBytes);
+          entry.path = `0x${entry.hash}${extension}`;
+          entry.displayPath = `${wadPath} / ${entry.path}`;
+          entry.wad = wadPath;
+        }
         catch { entry.assetType = "Unclassified WAD entries"; }
         if ((i + 1) % 40 === 0) {
           setStatus(`Reading WAD entries ${i + 1}/${wad.entries.length}`);
@@ -858,7 +880,7 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["HUD", "Champions", "Models", "Skeletons", "Animations", "Static models", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
+    const assetGroupOrder = ["HUD", "Champions", "Models", "Skeletons", "Animations", "Abilities & VFX", "Static models", "Maps & environment", "Audio", "DDS textures", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
     const hudGroupFor = (sourcePath) => {
       const path = sourcePath.replace(/\\/g, "/").toLowerCase();
       const parts = path.split("/");
@@ -889,6 +911,14 @@
         const label = ({ Models: "Models", Skeletons: "Skeletons", Animations: "Animations", "Static models": "Static models" })[entry.assetType];
         return champion ? "Champions · " + titleCase(champion) + " · " + label : label;
       }
+      if (entry.format === "wad-chunk" && (entry.assetType === "Abilities & VFX" || parts.includes("particles"))) {
+        return champion ? "Champions · " + titleCase(champion) + " · Abilities & VFX" : "Abilities & VFX";
+      }
+      if (entry.format === "wad-chunk" && fileExtension(entry.path) === ".dds") {
+        const targetName = (entry.wad || "").split("/").pop() || "";
+        const targetLabel = titleCase(targetName.toLowerCase().replace(".client", "").replace(".wad", ""));
+        return "DDS textures" + (targetLabel ? " · " + targetLabel : "");
+      }
       const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
       if (isHud) return hudGroupFor(entry.path);
       if (parts.some((part) => part.includes("summonersrift") || part === "map" || part === "maps" || part.includes("terrain") || part.startsWith("map.wad")) || path.includes("map.wad")) return "Maps & environment";
@@ -913,8 +943,8 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "WAD chunks are grouped by detected type. Search a hash or expand a group to inspect its contents."
-        : "Files are grouped by their role. Open a TEX texture or SKN model to preview it.";
+        ? "WAD assets are grouped by type. Sable previews a skin model automatically; expand Models to pick another. Search .dds for DDS textures."
+        : "Files are grouped by their role. Open a TEX or DDS texture, or an SKN model, to preview it.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
@@ -937,7 +967,9 @@
         const containsTexture = groupEntries.some((entry) =>
           fileExtension(entry.displayPath || entry.path) === ".tex" || entry.assetType === "Textures"
         );
-        group.open = entries.length <= 30 && (groupEntries.length <= 5 || containsTexture);
+        group.open = (entries.length <= 30 && (groupEntries.length <= 5 || containsTexture))
+          || groupName === "Models" || groupName.endsWith(" · Models")
+          || (groupName.startsWith("DDS textures") && groupEntries.length <= 20);
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -946,6 +978,7 @@
         for (const entry of groupEntries) {
           const displayPath = entry.displayPath || entry.path;
           const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = `${displayPath} ${groupName}`.toLowerCase();
+          row.dataset.entryKey = entry.hash || entry.path;
           const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path, entry.assetType);
           const details = document.createElement("span"); details.className = "asset-details";
           const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
@@ -1018,11 +1051,15 @@
     const showNativeTexturePreview = async (entry, request) => {
       const message = document.getElementById("assetMessage");
       const image = document.getElementById("assetImage");
-      message.textContent = "Preparing the native TEX preview…";
+      const textureType = fileExtension(entry.path) === ".dds" ? "DDS" : "TEX";
+      const textureEntryPath = entry.format === "wad-chunk" && entry.wad
+        ? `${entry.wad}/0x${entry.hash}${textureType === "DDS" ? ".dds" : ".tex"}`
+        : entry.displayPath || entry.path;
+      message.textContent = `Preparing the native ${textureType} preview…`;
       message.classList.remove("hidden");
       const preview = await window.__TAURI__.core.invoke("preview_package_texture", {
         sourcePath: loadedPackage.nativePath,
-        entryPath: entry.displayPath || entry.path
+        entryPath: textureEntryPath
       });
       if (request !== previewRequest) return;
       const png = new Uint8Array(preview.pngBytes);
@@ -1036,7 +1073,7 @@
       if (request !== previewRequest) return;
       fitAssetPreviewImage(image);
       const dimensions = `${image.naturalWidth}×${image.naturalHeight}`;
-      document.getElementById("inspectTag").textContent = `TEX ${dimensions}`;
+      document.getElementById("inspectTag").textContent = `${textureType} ${dimensions}`;
       document.getElementById("selectedPath").textContent = `${image.naturalWidth} × ${image.naturalHeight} · native PNG preview · ${preview.texturePath}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${dimensions}`;
       document.getElementById("assetOverlay").classList.add("is-visible");
@@ -1096,11 +1133,20 @@
         let activeSkeletonHash = null;
         const bindPose = document.createElement("option"); bindPose.value = ""; bindPose.textContent = "Bind pose";
         animationSelect.append(bindPose);
-        for (const clip of clips) {
-          const option = document.createElement("option");
-          option.value = wadMode ? clip.hash : clip.path;
-          option.textContent = wadMode ? clip.name : `${clip.name} · ${clip.duration.toFixed(1)}s · ${clip.jointCount} joints`;
-          animationSelect.append(option);
+        const abilityClip = (clip) => /(?:spell|ability|cast|channel|skill)[a-z0-9_-]*/i.test((clip.name || "").split("/").pop() || "");
+        const clipGroups = [
+          ["Ability animations", clips.filter(abilityClip)],
+          ["Other animations", clips.filter((clip) => !abilityClip(clip))]
+        ].filter(([, items]) => items.length);
+        for (const [label, items] of clipGroups) {
+          const group = document.createElement("optgroup"); group.label = label;
+          for (const clip of items) {
+            const option = document.createElement("option");
+            option.value = wadMode ? clip.hash : clip.path;
+            option.textContent = wadMode ? clip.name.split("/").slice(-2).join("/") : `${clip.name} · ${clip.duration.toFixed(1)}s · ${clip.jointCount} joints`;
+            group.append(option);
+          }
+          animationSelect.append(group);
         }
         if (wadMode) {
           skeletonLabel.classList.remove("hidden");
@@ -1234,10 +1280,10 @@
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
       try {
-        if (isDesktopApp && loadedPackage?.nativePath && (fileExtension(entry.path) === ".tex" || (entry.format === "wad-chunk" && entry.assetType === "Textures"))) {
+        if (isDesktopApp && loadedPackage?.nativePath && ([".tex", ".dds"].includes(fileExtension(entry.path)) || (entry.format === "wad-chunk" && entry.assetType === "Textures"))) {
           await showNativeTexturePreview(entry, request);
           if (request !== previewRequest) return;
-          setStatus("TEX preview ready");
+          setStatus(`${fileExtension(entry.path) === ".dds" ? "DDS" : "TEX"} preview ready`);
           return;
         }
         if (isDesktopApp && loadedPackage?.nativePath && entry.format !== "wad-chunk" && fileExtension(entry.path) === ".skn") {
@@ -1255,13 +1301,27 @@
             wadPath: currentWadView.sourceEntry.path,
             hash: entry.hash
           });
-          const skeletons = currentWadView.entries.filter((item) => item.assetType === "Skeletons");
-          const animations = currentWadView.entries.filter((item) => item.assetType === "Animations");
+          const modelPath = (entry.path || "").replace(/\\/g, "/").toLowerCase();
+          const modelDirectory = modelPath.slice(0, modelPath.lastIndexOf("/"));
+          const expectedSkeletonPath = modelPath.replace(/\.skn$/i, ".skl");
+          const byModelPath = (a, b, exactPath) => {
+            const score = (item) => {
+              const path = (item.path || "").replace(/\\/g, "/").toLowerCase();
+              if (path === exactPath) return 0;
+              if (modelDirectory && path.startsWith(modelDirectory + "/")) return 1;
+              return 2;
+            };
+            return score(a) - score(b) || (a.path || a.hash).localeCompare(b.path || b.hash);
+          };
+          const skeletons = currentWadView.entries.filter((item) => item.assetType === "Skeletons")
+            .sort((a, b) => byModelPath(a, b, expectedSkeletonPath));
+          const animations = currentWadView.entries.filter((item) => item.assetType === "Animations")
+            .sort((a, b) => byModelPath(a, b, ""));
           const bundle = {
             mode: "wad",
             wadPath: currentWadView.sourceEntry.path,
-            skeletons: skeletons.map((item, index) => ({ hash: item.hash, name: `Skeleton ${index + 1} · 0x${item.hash}` })),
-            animations: animations.map((item, index) => ({ hash: item.hash, name: `Animation ${index + 1} · 0x${item.hash}` }))
+            skeletons: skeletons.map((item, index) => ({ hash: item.hash, name: item.path || `Skeleton ${index + 1} · 0x${item.hash}` })),
+            animations: animations.map((item, index) => ({ hash: item.hash, name: item.path || `Animation ${index + 1} · 0x${item.hash}` }))
           };
           showModelPreview(new Uint8Array(bytes), entry, request, bundle);
           return;
@@ -1276,6 +1336,9 @@
             setStatus("TEX preview ready");
           } else if (data.length >= 4 && new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true) === 0x00112233) {
             showModelPreview(data, entry, request);
+          } else if (data.length >= 4 && data[0] === 0x44 && data[1] === 0x44 && data[2] === 0x53 && data[3] === 0x20) {
+            message.textContent = `DDS texture · ${prettyBytes(entry.size)}. Sable can preview DDS textures in the Windows desktop app.`;
+            message.classList.remove("hidden");
           } else {
             const magic = [...data.subarray(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ").toUpperCase();
             message.textContent = `${entry.assetType} · ${entry.compressionName} · ${prettyBytes(entry.size)} · header ${magic}. This entry is opened and identified, but it does not have an image preview.`;
@@ -1300,16 +1363,28 @@
           renderPackageFiles(wad.entries, "WAD entries");
           document.getElementById("selectedName").textContent = `${wad.entries.length} WAD entries`;
           document.getElementById("inspectTag").textContent = `WAD ${wad.version}`;
-          document.getElementById("selectedPath").textContent = `${displayPath} · ${wad.entries.length} hashed entries`;
+          document.getElementById("selectedPath").textContent = `${displayPath} · ${wad.entries.length} entries`;
           document.getElementById("assetPreviewTitle").textContent = `${displayPath} · WAD ${wad.version}`;
           const groups = Object.create(null);
           wad.entries.forEach((item) => { groups[item.assetType] = (groups[item.assetType] || 0) + 1; });
           const summary = Object.entries(groups).map(([name, count]) => `${name}: ${count}`).join(" · ");
           message.textContent = classified
-            ? `${wad.entries.length} internal entries grouped by detected file type (${summary}). WAD paths are stored as hashes, so Sable shows each asset's hash.`
+            ? `${wad.entries.length} WAD entries grouped by detected type (${summary}). Sable opens a skin model automatically when it finds matching rig assets.`
             : `${wad.entries.length} internal entries indexed. This browser cannot decode Zstandard, so Sable cannot classify or preview compressed entries here.`;
           message.classList.remove("hidden");
           setStatus(`WAD ${wad.version} · ${wad.entries.length} entries`);
+          const models = wad.entries.filter((item) => item.assetType === "Models");
+          const namedSkinModel = models
+            .filter((item) => /(?:^|\/)(?:characters|champions)\/[^/]+\/skins\//i.test(item.path || ""))
+            .sort((a, b) => (a.path || a.hash).localeCompare(b.path || b.hash, undefined, { numeric: true, sensitivity: "base" }))[0];
+          const hasRigAssets = wad.entries.some((item) => item.assetType === "Skeletons")
+            && wad.entries.some((item) => item.assetType === "Animations");
+          const firstModel = namedSkinModel || (hasRigAssets ? models.sort((a, b) => b.size - a.size)[0] : null);
+          if (firstModel) {
+            const modelRow = [...document.querySelectorAll(".asset-row")]
+              .find((node) => node.dataset.entryKey === firstModel.hash);
+            await selectPackageEntry(firstModel, modelRow || null);
+          }
           return;
         }
 
@@ -1322,6 +1397,11 @@
         if (fileExtension(entry.path) === ".tex") {
           await showTexturePreview(data, entry, request);
           setStatus("TEX preview ready");
+          return;
+        }
+        if (fileExtension(entry.path) === ".dds") {
+          message.textContent = `DDS texture · ${prettyBytes(entry.size)}. Sable can preview DDS textures in the Windows desktop app.`;
+          message.classList.remove("hidden");
           return;
         }
         const mime = IMAGE_MIME[fileExtension(entry.path)];
@@ -1582,7 +1662,7 @@
         document.getElementById("assetMessage").classList.remove("hidden");
         document.getElementById("assetMessage").textContent = format === "modpkg"
           ? "Choose an asset group. TEX files show image previews; SKN models show rotatable 3D meshes."
-          : "Choose an asset group. Open a WAD archive to browse its contents, including TEX textures and SKN models.";
+          : "Open the character WAD to preview its 3D skin model. Sable keeps the WAD list available for selecting another model, skeleton, or animation.";
         setStatus(`${format.toUpperCase()} loaded`);
         toast(`Opened ${file.name} · ${archive.entries.length} entries`);
       } catch (error) {

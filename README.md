@@ -15,6 +15,9 @@ The app uses the WebView2 runtime available on most current Windows installation
 - Open and browse .fantome and .modpkg packages.
 - Browse HUD assets in focused groups such as shop, inventory, scoreboard, abilities, champion UI, and effects.
 - Rotate and zoom untextured 3D previews of SKN skin meshes, including SKN files inside WAD archives.
+- Group ability and VFX definition BINs separately when browsing WAD contents.
+- Resolve many hashed WAD entries to readable paths using references embedded in BIN data, including model and animation names.
+- Preview DDS textures alongside League TEX textures.
 - Browse package contents by file type and detected paths.
 - Unpack a package into a League Toolkit project you can edit in File Explorer.
 - Convert TEX textures into PNG previews in a separate Textures folder.
