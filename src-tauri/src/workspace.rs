@@ -4,7 +4,7 @@ use ltk_mod_project::{
     ProjectImporter, ProjectPacker,
 };
 use ltk_anim::{Animation, AnimationAsset, RigResource};
-use ltk_hash::fnv1a;
+use ltk_hash::{BinHash, Hash as _};
 use ltk_texture::{
     tex::{EncodeFormat, EncodeOptions, Format, MipmapFilter},
     Tex,
@@ -696,7 +696,7 @@ fn model_animation_scope(entry_path: &str) -> Option<String> {
     let normalized = normalize_package_path(entry_path);
     let parts: Vec<_> = normalized.split('/').collect();
     if let Some(index) = parts.iter().position(|part| *part == "characters" || *part == "champions") {
-        if let Some(champion) = parts.get(index + 1) {
+        if parts.get(index + 1).is_some() {
             return Some(format!("{}/", parts[..=index + 1].join("/")));
         }
     }
@@ -731,7 +731,7 @@ fn parse_skeleton_preview(bytes: &[u8]) -> Result<SkeletonPreview, String> {
         influences: rig.influences().to_vec(),
         joints: rig.joints().iter().map(|joint| SkeletonJointPreview {
             name: joint.name().to_owned(),
-            hash: fnv1a::hash_lower(joint.name()),
+            hash: BinHash::hash_str(joint.name()).0,
             id: joint.id(),
             parent_id: joint.parent_id(),
             local_translation: joint.local_translation().to_array(),
