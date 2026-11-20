@@ -10,7 +10,13 @@ pub fn run() {
             workspace::pack_mod_workspace,
             workspace::open_sable_workspace,
             workspace::preview_package_texture,
-            workspace::inspect_package_wad_textures
+            workspace::inspect_package_wad_assets,
+            workspace::read_package_model,
+            workspace::read_package_model_preview_bundle,
+            workspace::read_package_animation_preview,
+            workspace::read_package_wad_model,
+            workspace::read_package_wad_skeleton_preview,
+            workspace::read_package_wad_animation_preview
         ])
         .run(tauri::generate_context!())
         .expect("Sable failed to start");

@@ -85,6 +85,15 @@
     .asset-size { flex: 0 0 auto; color: var(--soft); font-size: 8px; font-variant-numeric: tabular-nums; }
     .asset-search { width: 100%; margin: 3px 0 9px; padding: 8px 9px; border: 1px solid #403a42; border-radius: 7px; outline: none; color: var(--text); background: #211f23; font-size: 10px; }
     .asset-search:focus { border-color: #765261; }
+    .asset-filter { width: 100%; margin: 0 0 8px; padding: 8px 9px; border: 1px solid #403a42; border-radius: 7px; color: var(--text); background: #211f23; font-size: 10px; }
+    .asset-diagnostics { display: grid; gap: 8px; margin-top: 10px; padding: 11px; border: 1px solid #39333b; border-radius: 8px; background: #201d21; }
+    .asset-diagnostic { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; font-size: 9px; line-height: 1.45; }
+    .asset-diagnostic-label { color: var(--soft); text-transform: uppercase; letter-spacing: .08em; }
+    .asset-diagnostic-value { min-width: 0; color: #e5dde5; overflow-wrap: anywhere; }
+    .asset-diagnostic-value[data-state="error"] { color: var(--red); }
+    .asset-diagnostic-value[data-state="loading"] { color: var(--gold); }
+    .asset-diagnostic-value[data-state="warning"] { color: var(--gold); }
+    .asset-diagnostic-value[data-state="ready"] { color: var(--green); }
     .wad-back { width: 100%; margin: 0 0 8px; justify-content: flex-start; }
     .package-meta { display: grid; gap: 7px; margin-bottom: 10px; padding: 10px; border: 1px solid #39333b; border-radius: 8px; background: #201d21; }
     .meta-pair { min-width: 0; }
@@ -125,8 +134,18 @@
     .game-preview.asset-mode .asset-overlay { display: flex; }
     .asset-overlay.is-visible { display: flex !important; }
     .asset-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
-    .asset-viewer-title { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6dce5; font-size: 11px; font-weight: 650; }
+    .asset-viewer-heading { position: relative; width: 100%; min-height: 24px; display: flex; align-items: center; justify-content: space-between; }
+    .asset-viewer-title { position: absolute; left: 50%; max-width: calc(100% - 180px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); color: #e6dce5; font-size: 11px; font-weight: 650; }
+    .skin-texture-toggle { z-index: 1; display: inline-flex; align-items: center; gap: 7px; margin-left: auto; color: var(--muted); font-size: 9px; white-space: nowrap; }
+    .skin-texture-toggle .mini-switch { width: 30px; height: 17px; }
     .asset-image { display: block; max-width: 94%; max-height: calc(100% - 40px); object-fit: contain; image-rendering: auto; border-radius: 4px; box-shadow: 0 12px 40px #0008; background-color: #f2eff3; background-image: linear-gradient(45deg, #b9b4bc 25%, transparent 25%, transparent 75%, #b9b4bc 75%), linear-gradient(45deg, #b9b4bc 25%, #f2eff3 25%, #f2eff3 75%, #b9b4bc 75%); background-position: 0 0, 12px 12px; background-size: 24px 24px; }
+    .asset-model { flex: 1 1 auto; min-height: 0; width: 100%; border: 1px solid #51424c; border-radius: 7px; background: #171319; cursor: grab; touch-action: none; }
+    .asset-model:active { cursor: grabbing; }
+    .model-hint { flex: 0 0 auto; color: var(--muted); font-size: 10px; text-align: center; }
+    .model-controls { flex: 0 0 auto; max-width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 10px; }
+    .model-controls label { display: inline-flex; align-items: center; gap: 6px; }
+    .model-controls select { max-width: 240px; padding: 5px 8px; border: 1px solid #51424c; border-radius: 6px; color: var(--text); background: #211a23; font: inherit; }
+    #modelAnimationInfo { color: var(--soft); font-variant-numeric: tabular-nums; }
     .asset-message { max-width: 390px; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.6; }
     .map { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #40554a 0, #2c423a 25%, #21372f 53%, #172723 100%); }
     .map::before { content: ""; position: absolute; width: 50%; height: 75%; left: 25%; top: 14%; transform: rotate(-30deg); border: 2px solid #86947b30; border-radius: 40% 60% 55% 45%; background: linear-gradient(135deg, #77795018, #1b282323 45%, #9e94601a); box-shadow: 0 0 0 38px #111a1733, 0 0 0 76px #b6ad6820; }
@@ -304,6 +323,7 @@
             <div class="section-head"><span class="eyebrow" id="assetCount">Files in package</span><span class="tiny-action">On this device</span></div>
             <details class="meta-details"><summary>Package details</summary><div class="package-meta" id="packageMeta"><div class="asset-empty-list">Package details will appear here.</div></div></details>
             <input class="asset-search" id="assetSearch" type="search" placeholder="Search champions, HUD, textures, maps, files…" aria-label="Search package files">
+            <select class="asset-filter" id="assetTypeFilter" aria-label="Filter package files by type"><option value="all">All asset types</option><option value="models">Models</option><option value="textures">Textures</option><option value="skeletons">Skeletons</option><option value="animations">Animations</option><option value="vfx">Abilities &amp; VFX</option><option value="other">Other assets</option></select>
             <button class="btn quiet wad-back hidden" id="wadBack" type="button">Back to package files</button>
             <div class="asset-list" id="packageFiles"><div class="asset-empty-list">Package files will appear here.</div></div>
           </div>
@@ -317,7 +337,7 @@
           <div class="canvas-label"><span>Preview</span><span>Select a file from the library</span></div>
           <div class="game-preview no-package" id="gamePreview">
             <div class="empty-canvas" id="emptyCanvas"><span class="welcome-logo-frame"><img class="welcome-logo" src="" alt=""></span><div class="empty-title">Open a mod to get started</div><div class="empty-copy">Choose a .fantome or .modpkg to browse its files, preview supported assets, and unpack a working copy.</div><button class="btn primary" id="emptyOpenFile" type="button">Open mod</button><div class="empty-note">Your original download stays untouched.</div></div>
-            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
+            <div class="asset-overlay" id="assetOverlay"><div class="asset-viewer"><div class="asset-viewer-heading"><div class="asset-viewer-title" id="assetPreviewTitle">Select an asset</div><label class="skin-texture-toggle hidden" id="skinTextureControl"><span>Skin texture</span><button class="mini-switch off" id="skinTextureSwitch" type="button" role="switch" aria-checked="false" aria-label="Toggle skin texture"></button></label></div><img id="assetImage" class="asset-image hidden" alt="Preview of selected package image"><canvas id="assetModel" class="asset-model hidden" aria-label="Rotatable 3D model preview"></canvas><div class="model-controls hidden" id="modelControls"><label id="modelSkeletonLabel" class="hidden">Skeleton<select id="modelSkeleton" aria-label="Select model skeleton"></select></label><label>Animation<select id="modelAnimation" aria-label="Select model animation"></select></label><button class="btn quiet" id="modelPlay" type="button">Play</button><label>Speed<select id="modelSpeed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><span id="modelAnimationInfo">Bind pose</span></div><div id="modelHint" class="model-hint hidden">3D model · drag to rotate · scroll to zoom · double-click to reset</div><div id="assetMessage" class="asset-message">Choose an image from the Assets tab to preview it.</div></div></div>
           </div>
         </div>
       </section>
@@ -335,11 +355,19 @@
           <div class="tip"><strong>Safe editing:</strong> your original download should stay untouched. Export will make a new copy with your changes.</div>
           </div>
           <div class="tip hidden" id="assetReadOnly"><strong>Preview only.</strong> Unpack to edit the project files or PNG companions, then use Repack to rebuild the mod.</div>
+          <div class="asset-diagnostics hidden" id="assetDiagnostics" aria-live="polite">
+            <div class="eyebrow">Preview details</div>
+            <div class="asset-diagnostic"><span class="asset-diagnostic-label">Renderer</span><span class="asset-diagnostic-value" id="diagnosticRenderer">—</span></div>
+            <div class="asset-diagnostic"><span class="asset-diagnostic-label">Model</span><span class="asset-diagnostic-value" id="diagnosticModel">—</span></div>
+            <div class="asset-diagnostic"><span class="asset-diagnostic-label">Texture</span><span class="asset-diagnostic-value" id="diagnosticTexture">—</span></div>
+            <div class="asset-diagnostic"><span class="asset-diagnostic-label">Skeleton</span><span class="asset-diagnostic-value" id="diagnosticSkeleton">—</span></div>
+          </div>
         </div>
       </aside>
     </main>
   </div>
   <div class="toast" id="toast"></div>
+  <script src="model-preview.js"></script>
   <script>
     const elementNames = { player: "Player stats", abilities: "Ability bar", items: "Item slots", minimap: "Minimap", score: "Match score" };
     const presets = {};
@@ -350,7 +378,12 @@
     let activeWorkspacePath = localStorage.getItem("sable.workspacePath") || null;
     let currentWadView = null;
     let currentAssetUrl = null;
+    let currentModelController = null;
     let previewRequest = 0;
+    let activeWadScanRequest = null;
+    let activeWadScanPath = null;
+    let wadProgressListenerPromise = null;
+    const wadClassificationCache = new Map();
     let fzstdLoadPromise = null;
     const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
     const MAX_PREVIEW_BYTES = 96 * 1024 * 1024;
@@ -376,7 +409,11 @@
       return dot < 0 ? "" : name.slice(dot).toLowerCase();
     };
     const entryKind = (path, assetType = "") => {
-      if (assetType === "Textures") return "TEX";
+      if (assetType === "Textures") return fileExtension(path) === ".dds" ? "DDS" : "TEX";
+      if (assetType === "Models") return "SKN";
+      if (assetType === "Skeletons") return "SKL";
+      if (assetType === "Animations") return "ANM";
+      if (assetType === "Static models") return "SCB";
       if (assetType === "Models & animation") return "MODEL";
       if (assetType === "Audio") return "AUDIO";
       if (/\.wad(?:\.client)?$/i.test(path)) return "WAD";
@@ -526,52 +563,133 @@
     const identifyWadAsset = (bytes) => {
       const magic = new TextDecoder().decode(bytes.subarray(0, 4));
       if (magic === "TEX\0" || magic === "DDS ") return "Textures";
-      if (["SKN\0", "SKL\0", "ANM\0", "SCB\0", "SCO\0"].includes(magic)) return "Models & animation";
-      if (magic === "PROP" || magic === "PTCH") return "Game data";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return "Models";
+      if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return "Skeletons";
+      if (bytes.length >= 8 && (magic === "r3d2" && (String.fromCharCode(...bytes.subarray(4, 8)) === "canm" || String.fromCharCode(...bytes.subarray(4, 8)) === "anmd"))) return "Animations";
+      if (magic === "SCB\0" || magic === "SCO\0") return "Static models";
+      if (magic === "PROP" || magic === "PTCH" || magic === "#PRO" || magic === "#PTC") return "Game data";
       if (magic === "BKHD" || magic === "RIFF" || magic === "WPK\0") return "Audio";
       if (magic.startsWith("RW")) return "WAD archives";
       if (bytes[0] === 0x89 && magic.slice(1, 4) === "PNG") return "Images";
       return "Other WAD entries";
     };
+    const identifyWadExtension = (bytes) => {
+      const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+      if (magic.startsWith("TEX\0")) return ".tex";
+      if (magic.startsWith("DDS ")) return ".dds";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return ".skn";
+      if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return ".skl";
+      if (magic.startsWith("r3d2canm") || magic.startsWith("r3d2anmd")) return ".anm";
+      if (magic.startsWith("SCB\0")) return ".scb";
+      if (magic.startsWith("SCO\0")) return ".sco";
+      if (magic.startsWith("PROP") || magic.startsWith("PTCH") || magic.startsWith("#PROP") || magic.startsWith("#PTCH")) return ".bin";
+      if (magic.startsWith("BKHD")) return ".bnk";
+      if (magic.startsWith("WPK\0")) return ".wpk";
+      if (magic.startsWith("RIFF")) return ".wem";
+      return "";
+    };
+    const ensureWadProgressListener = async () => {
+      if (!isDesktopApp || !window.__TAURI__?.event?.listen || wadProgressListenerPromise) {
+        if (wadProgressListenerPromise) await wadProgressListenerPromise;
+        return;
+      }
+      try {
+        wadProgressListenerPromise = window.__TAURI__.event.listen("wad-inspection-progress", (event) => {
+          const progress = event?.payload;
+          if (progress?.requestId !== activeWadScanRequest || progress.wadPath !== activeWadScanPath) return;
+          setStatus(`Classifying WAD assets · ${progress.completed}/${progress.total}`);
+        }).catch((error) => {
+          console.warn("WAD progress reporting is unavailable.", error);
+          return null;
+        });
+        await wadProgressListenerPromise;
+      } catch (error) {
+        console.warn("WAD progress reporting is unavailable.", error);
+        wadProgressListenerPromise = Promise.resolve(null);
+      }
+    };
+    const wadClassificationKey = (wad, wadPath) => {
+      const file = loadedPackage?.file;
+      const tableSignature = wad.entries.map((entry) => `${entry.hash}:${entry.size}:${entry.compressedSize}:${entry.dataOffset}:${entry.compression}`).join("|");
+      return `${loadedPackage?.nativePath || ""}\0${file?.size || 0}\0${wadPath}\0${wad.version}\0${tableSignature}`;
+    };
+    const rememberWadClassification = (key, assets) => {
+      wadClassificationCache.delete(key);
+      wadClassificationCache.set(key, assets);
+      while (wadClassificationCache.size > 6) wadClassificationCache.delete(wadClassificationCache.keys().next().value);
+    };
     const scanWadEntries = async (bytes, wad, request, wadPath) => {
       if (isDesktopApp && loadedPackage?.nativePath) {
-        setStatus("Finding TEX files in the WAD…");
-        const textures = await window.__TAURI__.core.invoke("inspect_package_wad_textures", {
-          sourcePath: loadedPackage.nativePath,
-          wadPath
-        });
-        if (request !== previewRequest) return false;
-        const byHash = new Map(textures.map((item) => [String(item.hash).toLowerCase(), item]));
-        wad.entries.forEach((entry) => {
-          const texture = byHash.get(entry.hash.toLowerCase());
-          if (texture) {
-            const texturePath = `0x${entry.hash}.tex`;
-            entry.assetType = "Textures";
-            entry.path = texturePath;
-            entry.displayPath = `${wadPath} / ${texturePath}`;
-            entry.wad = wadPath;
+        const cacheKey = wadClassificationKey(wad, wadPath);
+        let assets = wadClassificationCache.get(cacheKey);
+        try {
+          if (assets) {
+            wadClassificationCache.delete(cacheKey);
+            wadClassificationCache.set(cacheKey, assets);
+            setStatus("Using cached WAD asset groups");
           } else {
-            entry.assetType = "Other WAD entries";
+            activeWadScanRequest = request;
+            activeWadScanPath = wadPath;
+            setStatus(`Classifying WAD assets · 0/${wad.entries.length}`);
+            await ensureWadProgressListener();
+            try {
+              assets = await window.__TAURI__.core.invoke("inspect_package_wad_assets", {
+                sourcePath: loadedPackage.nativePath,
+                wadPath,
+                requestId: request
+              });
+            } finally {
+              if (activeWadScanRequest === request) {
+                activeWadScanRequest = null;
+                activeWadScanPath = null;
+              }
+            }
+            if (request !== previewRequest) return false;
+            rememberWadClassification(cacheKey, assets);
           }
-        });
-        return true;
+          if (request !== previewRequest) return false;
+          const byHash = new Map(assets.map((item) => [String(item.hash).toLowerCase(), item]));
+          wad.entries.forEach((entry) => {
+            const asset = byHash.get(entry.hash.toLowerCase());
+            if (asset) {
+              entry.assetType = asset.assetType;
+              entry.path = asset.path || `0x${entry.hash}.${asset.extension}`;
+              entry.displayPath = `${wadPath} / ${entry.path}`;
+              entry.wad = wadPath;
+            } else {
+              entry.assetType = "Other WAD entries";
+            }
+          });
+          return true;
+        } catch (error) {
+          if (activeWadScanRequest === request) {
+            activeWadScanRequest = null;
+            activeWadScanPath = null;
+          }
+          console.warn("Native WAD classification failed; trying the built-in reader.", error);
+          setStatus("Using the built-in WAD reader");
+        }
       }
-      const canReadZstd = (() => { try { new DecompressionStream("zstd"); return true; } catch { return false; } })();
-      if (!canReadZstd && wad.entries.some((entry) => entry.compression === 3)) {
-        wad.entries.forEach((entry) => { entry.assetType = "Unclassified WAD entries"; });
-        return false;
-      }
+      let readableEntries = 0;
       for (let i = 0; i < wad.entries.length; i++) {
         if (request !== previewRequest) return false;
         const entry = wad.entries[i];
-        try { entry.assetType = identifyWadAsset(await readWadChunk(bytes, entry)); }
+        try {
+          const assetBytes = await readWadChunk(bytes, entry);
+          readableEntries++;
+          entry.assetType = identifyWadAsset(assetBytes);
+          const extension = identifyWadExtension(assetBytes);
+          entry.path = `0x${entry.hash}${extension}`;
+          entry.displayPath = `${wadPath} / ${entry.path}`;
+          entry.wad = wadPath;
+        }
         catch { entry.assetType = "Unclassified WAD entries"; }
         if ((i + 1) % 40 === 0) {
           setStatus(`Reading WAD entries ${i + 1}/${wad.entries.length}`);
           await new Promise((resolve) => requestAnimationFrame(resolve));
         }
       }
-      return true;
+      return readableEntries > 0;
     };
     const decodeTex = (input) => {
       const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
@@ -647,6 +765,83 @@
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("Sable could not turn this TEX texture into a preview image.");
       return { blob, width: texture.width, height: texture.height, format: texture.format, mipCount: texture.mipCount };
+    };
+    const decodeDds = (input) => {
+      const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+      if (bytes.length < 128 || String.fromCharCode(...bytes.subarray(0, 4)) !== "DDS ") throw new Error("This file does not contain a complete DDS texture.");
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (view.getUint32(4, true) !== 124 || view.getUint32(76, true) !== 32) throw new Error("This DDS texture has an invalid header.");
+      const height = view.getUint32(12, true); const width = view.getUint32(16, true);
+      if (!width || !height || width * height > 20000000) throw new Error("This DDS texture has dimensions Sable cannot safely preview.");
+      const fourCC = String.fromCharCode(...bytes.subarray(84, 88));
+      let format = fourCC; let dataOffset = 128;
+      if (fourCC === "DX10") {
+        if (bytes.length < 148) throw new Error("This DDS DX10 header is incomplete.");
+        const dxgi = view.getUint32(128, true);
+        format = dxgi >= 70 && dxgi <= 72 ? "DXT1" : dxgi >= 73 && dxgi <= 75 ? "DXT3" : dxgi >= 76 && dxgi <= 78 ? "DXT5" : "DXGI " + dxgi;
+        dataOffset = 148;
+      }
+      if (!["DXT1", "DXT3", "DXT5"].includes(format)) throw new Error(`Sable cannot preview DDS format ${format} yet.`);
+      const blocksWide = Math.ceil(width / 4); const blocksHigh = Math.ceil(height / 4);
+      const bytesPerBlock = format === "DXT1" ? 8 : 16;
+      if (dataOffset + blocksWide * blocksHigh * bytesPerBlock > bytes.length) throw new Error("The DDS texture pixels are incomplete.");
+      const pixels = new Uint8ClampedArray(width * height * 4);
+      const color565 = (value) => {
+        const r = (value >> 11) & 31; const g = (value >> 5) & 63; const b = value & 31;
+        return [(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)];
+      };
+      for (let by = 0; by < blocksHigh; by++) for (let bx = 0; bx < blocksWide; bx++) {
+        const block = dataOffset + (by * blocksWide + bx) * bytesPerBlock;
+        const hasExplicitAlpha = format === "DXT3"; const hasInterpolatedAlpha = format === "DXT5";
+        const colorBlock = block + (format === "DXT1" ? 0 : 8);
+        const c0 = view.getUint16(colorBlock, true); const c1 = view.getUint16(colorBlock + 2, true);
+        const first = color565(c0); const second = color565(c1);
+        const palette = [first, second];
+        if (format !== "DXT1" || c0 > c1) {
+          palette.push(first.map((channel, i) => Math.round((2 * channel + second[i]) / 3)));
+          palette.push(first.map((channel, i) => Math.round((channel + 2 * second[i]) / 3)));
+        } else {
+          palette.push(first.map((channel, i) => Math.round((channel + second[i]) / 2)));
+          palette.push([0, 0, 0]);
+        }
+        const colorIndices = view.getUint32(colorBlock + 4, true);
+        const alphaPalette = [bytes[block], bytes[block + 1]];
+        if (hasInterpolatedAlpha) {
+          if (alphaPalette[0] > alphaPalette[1]) {
+            for (let i = 1; i <= 6; i++) alphaPalette.push(Math.round(((7 - i) * alphaPalette[0] + i * alphaPalette[1]) / 7));
+          } else {
+            for (let i = 1; i <= 4; i++) alphaPalette.push(Math.round(((5 - i) * alphaPalette[0] + i * alphaPalette[1]) / 5));
+            alphaPalette.push(0, 255);
+          }
+        }
+        for (let py = 0; py < 4; py++) for (let px = 0; px < 4; px++) {
+          const x = bx * 4 + px; const y = by * 4 + py; if (x >= width || y >= height) continue;
+          const pixel = py * 4 + px; const colorIndex = (colorIndices >>> (pixel * 2)) & 3;
+          const target = (y * width + x) * 4; const color = palette[colorIndex];
+          pixels[target] = color[0]; pixels[target + 1] = color[1]; pixels[target + 2] = color[2];
+          if (hasExplicitAlpha) {
+            const packedAlpha = bytes[block + (pixel >> 1)];
+            pixels[target + 3] = ((packedAlpha >> ((pixel & 1) * 4)) & 15) * 17;
+          } else if (hasInterpolatedAlpha) {
+            const bit = pixel * 3; const byte = bit >> 3; const shift = bit & 7;
+            const packedAlpha = bytes[block + 2 + byte] | (bytes[block + 3 + byte] << 8);
+            pixels[target + 3] = alphaPalette[(packedAlpha >> shift) & 7];
+          } else {
+            pixels[target + 3] = c0 <= c1 && colorIndex === 3 ? 0 : 255;
+          }
+        }
+      }
+      return { width, height, pixels, format };
+    };
+    const ddsToPng = async (input) => {
+      const texture = decodeDds(input);
+      const canvas = document.createElement("canvas"); canvas.width = texture.width; canvas.height = texture.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Sable could not create the DDS preview canvas.");
+      const imageData = context.createImageData(texture.width, texture.height); imageData.data.set(texture.pixels); context.putImageData(imageData, 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Sable could not turn this DDS texture into a preview image.");
+      return { blob, width: texture.width, height: texture.height, format: texture.format };
     };
     const decodeMessagePack = (bytes) => {
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -843,7 +1038,24 @@
         const note = document.createElement("div"); note.className = "meta-value"; note.textContent = "No author metadata provided."; panel.append(note);
       }
     };
-    const assetGroupOrder = ["HUD & interface", "Champions", "Maps & environment", "Audio", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Package metadata", "Other game assets", "Other"];
+    const assetGroupOrder = ["HUD", "Champions", "Linked assets", "Models", "Skeletons", "Animations", "Abilities & VFX", "Static models", "Maps & environment", "Audio", "DDS textures", "Textures", "Models & animation", "Images", "WAD archives", "WAD contents", "Game data", "Package metadata", "Other game assets", "Other WAD entries", "Unclassified WAD entries", "Other"];
+    const hudGroupFor = (sourcePath) => {
+      const path = sourcePath.replace(/\\/g, "/").toLowerCase();
+      const parts = path.split("/");
+      const championIndex = parts.indexOf("champions");
+      if (championIndex >= 0 && parts[championIndex + 1]) return "HUD · Champion UI";
+      if (/loadingscreen|loadscreen/.test(path)) return "HUD · Loading screens";
+      if (/scoreboard|neutral|objective|dragonui|grubbies|atakhan/.test(path)) return "HUD · Scoreboard & objectives";
+      if (/practicetool/.test(path)) return "HUD · Practice tool";
+      if (/itemshop/.test(path)) return "HUD · Item shop";
+      if (/inventory|quickbuy|quicbuy|purchasebutton|buildtree|item_selected|rec_item|filter_highlight/.test(path)) return "HUD · Inventory & quick buy";
+      if (/popup|tooltip|deathrecap|reconnect|surrender/.test(path)) return "HUD · Popups & tooltips";
+      if (/ability|perk|clarity|hudatlas|hudreset|statspanel|healthbar|levelup/.test(path)) return "HUD · Abilities & stats";
+      if (/chat|voice|radialwheel|contextwheel|menu|options/.test(path)) return "HUD · Menus & chat";
+      if (/magic|ray|particle/.test(path)) return "HUD · Magic & particles";
+      if (/border|glow|highlight|rectangle|tab_underline|container/.test(path)) return "HUD · Borders & highlights";
+      return "HUD · Other interface";
+    };
     const assetGroupFor = (entry) => {
       const path = (entry.path + " " + (entry.displayPath || "") + " " + (entry.wad || "")).replace(/\\/g, "/").toLowerCase();
       const parts = path.split("/").map((part) => part.trim()).filter(Boolean);
@@ -853,16 +1065,37 @@
         if (parts[i] === "champions" || parts[i] === "characters") { champion = parts[i + 1].replace(/\.wad(?:\.client)?$/i, ""); break; }
       }
       const titleCase = (value) => value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      const wadOwner = (entry.wad || "").split("/").pop()?.replace(/\.wad(?:\.client)?$/i, "").toLowerCase() || "";
+      const linkedChampion = entry.format === "wad-chunk" && champion && wadOwner && champion.toLowerCase() !== wadOwner;
+      const ownerGroup = champion ? `${linkedChampion ? "Linked assets" : "Champions"} · ${titleCase(champion)}` : "";
+      if (entry.format === "wad-chunk" && ["Models", "Skeletons", "Animations", "Static models"].includes(entry.assetType)) {
+        const label = ({ Models: "Models", Skeletons: "Skeletons", Animations: "Animations", "Static models": "Static models" })[entry.assetType];
+        return ownerGroup ? `${ownerGroup} · ${label}` : label;
+      }
+      const isParticleAsset = parts.includes("particles");
+      if (entry.format === "wad-chunk" && entry.assetType === "Abilities & VFX") {
+        return ownerGroup ? `${ownerGroup} · Abilities & VFX` : "Abilities & VFX";
+      }
       const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
-      if (isHud) return champion ? "HUD & interface · " + titleCase(champion) : "HUD & interface";
+      if (isHud) return hudGroupFor(entry.path);
       if (parts.some((part) => part.includes("summonersrift") || part === "map" || part === "maps" || part.includes("terrain") || part.startsWith("map.wad")) || path.includes("map.wad")) return "Maps & environment";
-      if (champion) return "Champions · " + titleCase(champion);
-      if ([".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension) || parts.some((part) => part === "audio" || part === "sounds" || part.startsWith("audio.wad") || part.startsWith("sfx.wad"))) return "Audio";
+      if (champion) {
+        const championName = ownerGroup;
+        if (entry.assetType === "Textures" || [".tex", ".dds"].includes(extension)) return championName + " · Textures";
+        if (entry.assetType === "Game data") return championName + " · Data";
+        if (entry.assetType === "Audio" || [".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension)) return championName + " · Audio";
+        if (entry.assetType === "Images" || IMAGE_MIME[extension]) return championName + " · Images";
+        if (isParticleAsset) return championName + " · Abilities & VFX";
+        if (entry.assetType === "Other WAD entries" || entry.assetType === "Unclassified WAD entries") return championName + " · Other assets";
+        return championName;
+      }
+      if ([".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension) || entry.assetType === "Audio" || parts.some((part) => part === "audio" || part === "sounds" || part.startsWith("audio.wad") || part.startsWith("sfx.wad"))) return "Audio";
       if (path.startsWith("_meta/") || path.startsWith("meta/") || parts.some((part) => part === "info.json" || part === "info.msgpack" || part === "manifest.json")) return "Package metadata";
       if (entry.format === "wad-chunk") {
-        const targetName = (entry.wad || "").split("/").pop() || "";
-        const targetLabel = titleCase(targetName.toLowerCase().replace(".client", "").replace(".wad", ""));
-        return (entry.assetType || "Other game assets") + (targetLabel ? " · " + targetLabel : " · WAD contents");
+        if (entry.assetType === "Textures" || [".tex", ".dds"].includes(extension)) return extension === ".dds" ? "DDS textures" : "Textures";
+        if (entry.assetType === "Images" || IMAGE_MIME[extension]) return "Images";
+        if (isParticleAsset && ["Other WAD entries", "Unclassified WAD entries"].includes(entry.assetType)) return "Abilities & VFX";
+        return entry.assetType || "Other game assets";
       }
       if ([".tex", ".dds"].includes(extension)) return "Textures";
       if (IMAGE_MIME[extension]) return "Images";
@@ -872,14 +1105,64 @@
       if ([".json", ".msgpack", ".bin"].includes(extension)) return "Package metadata";
       return "Other";
     };
+    const assetFilterFor = (entry) => {
+      const extension = fileExtension(entry.displayPath || entry.path);
+      const type = (entry.assetType || "").toLowerCase();
+      if ([".skn", ".scb", ".sco", ".gmesh", ".tmesh"].includes(extension) || type === "models" || type === "static models") return "models";
+      if (extension === ".skl" || type === "skeletons") return "skeletons";
+      if (extension === ".anm" || type === "animations") return "animations";
+      if ([".tex", ".dds"].includes(extension) || type === "textures") return "textures";
+      if (extension === ".troybin" || type === "abilities & vfx") return "vfx";
+      return "other";
+    };
+    const applyAssetFilters = () => {
+      const query = document.getElementById("assetSearch").value.trim().toLowerCase();
+      const filter = document.getElementById("assetTypeFilter").value;
+      let visible = 0;
+      const filtering = Boolean(query || filter !== "all");
+      const rows = [...document.querySelectorAll(".asset-row")];
+      rows.forEach((row) => {
+        const matches = (!query || row.dataset.search.includes(query))
+          && (filter === "all" || row.dataset.assetFilter === filter);
+        row.classList.toggle("hidden", !matches);
+        if (matches) visible++;
+      });
+      document.querySelectorAll(".asset-group").forEach((group) => {
+        const matches = group.querySelectorAll(".asset-row:not(.hidden)").length;
+        group.classList.toggle("hidden", matches === 0);
+        if (filtering && matches) group.open = true;
+        const count = group.querySelector(".asset-group-count");
+        if (count) {
+          const total = Number(group.dataset.totalCount) || matches;
+          count.textContent = filtering ? `${matches} of ${total}` : `${total} ${total === 1 ? "file" : "files"}`;
+        }
+      });
+      const assetCount = document.getElementById("assetCount");
+      const totalEntries = Number(assetCount.dataset.totalCount) || 0;
+      const countLabel = assetCount.dataset.countLabel || "files";
+      assetCount.textContent = filtering ? `${visible} of ${totalEntries} ${countLabel}` : `${totalEntries} ${countLabel}`;
+      let empty = document.getElementById("assetSearchEmpty");
+      if (!empty) {
+        empty = document.createElement("div");
+        empty.id = "assetSearchEmpty";
+        empty.className = "asset-empty-list";
+      }
+      if (filtering && visible === 0) {
+        empty.textContent = query ? "No files match this search and type filter." : "No files match this type filter.";
+        document.getElementById("packageFiles").append(empty);
+      } else empty.remove();
+    };
     const renderPackageFiles = (entries, countLabel = "package files") => {
       const list = document.getElementById("packageFiles");
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "TEX files are marked TEX. Search .tex or open a WAD to inspect its contents; some WAD entries use hashed names."
-        : "TEX files are marked and their groups open automatically. Search .tex to find them.";
-      document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
+        ? "WAD assets are grouped by path owner and role. Linked assets are kept separate, textures stay out of VFX groups, and single-file roles are folded together. Use the type filter to narrow the list."
+        : "Files are grouped by their role. Open a TEX or DDS texture, or an SKN model, to preview it.";
+      const assetCount = document.getElementById("assetCount");
+      assetCount.dataset.totalCount = String(entries.length);
+      assetCount.dataset.countLabel = countLabel;
+      assetCount.textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
         const empty = document.createElement("div"); empty.className = "asset-empty-list"; empty.textContent = "No files were found in this package."; list.append(empty); return;
       }
@@ -889,6 +1172,14 @@
         if (!groups.has(group)) groups.set(group, []);
         groups.get(group).push(entry);
       }
+      for (const [groupName, groupEntries] of [...groups]) {
+        const championSubgroup = groupName.match(/^(Champions|Linked assets) · (.+) · .+$/);
+        if (groupEntries.length !== 1 || !championSubgroup) continue;
+        const championGroup = `${championSubgroup[1]} · ${championSubgroup[2]}`;
+        groups.delete(groupName);
+        if (!groups.has(championGroup)) groups.set(championGroup, []);
+        groups.get(championGroup).push(...groupEntries);
+      }
       const groupNames = [...groups.keys()].sort((a, b) => {
         const rank = (name) => { const index = assetGroupOrder.findIndex((base) => name === base || name.startsWith(`${base} · `)); return index < 0 ? assetGroupOrder.length : index; };
         return rank(a) - rank(b) || a.localeCompare(b);
@@ -896,12 +1187,19 @@
       for (const groupName of groupNames) {
         const groupEntries = groups.get(groupName);
         if (!groupEntries?.length) continue;
-        groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        if (groupEntries.every((entry) => entry.format === "wad-chunk" && entry.assetType === "Models")) {
+          groupEntries.sort((a, b) => b.size - a.size || (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        } else {
+          groupEntries.sort((a, b) => (a.displayPath || a.path).localeCompare(b.displayPath || b.path, undefined, { numeric: true, sensitivity: "base" }));
+        }
         const group = document.createElement("details"); group.className = "asset-group";
+        group.dataset.totalCount = String(groupEntries.length);
         const containsTexture = groupEntries.some((entry) =>
           fileExtension(entry.displayPath || entry.path) === ".tex" || entry.assetType === "Textures"
         );
-        group.open = groupEntries.length <= 5 || containsTexture;
+        group.open = (entries.length <= 30 && (groupEntries.length <= 5 || containsTexture))
+          || groupName === "Models" || groupName.endsWith(" · Models")
+          || (groupName.startsWith("DDS textures") && groupEntries.length <= 20);
         const heading = document.createElement("summary");
         const title = document.createElement("span"); title.className = "asset-group-title"; title.textContent = groupName;
         const count = document.createElement("span"); count.className = "asset-group-count"; count.textContent = `${groupEntries.length} ${groupEntries.length === 1 ? "file" : "files"}`;
@@ -910,6 +1208,8 @@
         for (const entry of groupEntries) {
           const displayPath = entry.displayPath || entry.path;
           const row = document.createElement("button"); row.type = "button"; row.className = "asset-row"; row.dataset.search = `${displayPath} ${groupName}`.toLowerCase();
+          row.dataset.assetFilter = assetFilterFor(entry);
+          row.dataset.entryKey = entry.hash || entry.path;
           const kind = document.createElement("span"); kind.className = "asset-kind"; kind.textContent = entryKind(entry.path, entry.assetType);
           const details = document.createElement("span"); details.className = "asset-details";
           const name = document.createElement("span"); name.className = "asset-name"; name.textContent = entry.path.split("/").pop() || entry.path;
@@ -922,10 +1222,19 @@
         group.append(heading, rows);
         list.append(group);
       }
+      applyAssetFilters();
     };
     const readPackageEntry = (entry, maxBytes = MAX_PREVIEW_BYTES) => loadedPackage.format === "modpkg" || entry.format === "modpkg"
       ? readModpkgChunk(loadedPackage.buffer, entry, maxBytes)
       : readZipEntry(loadedPackage.buffer, entry, maxBytes);
+    const clearModelPreview = () => {
+      window.SableModelPreview.clear();
+      currentModelController = null;
+      document.getElementById("assetModel").classList.add("hidden");
+      document.getElementById("modelHint").classList.add("hidden");
+      document.getElementById("modelControls").classList.add("hidden");
+      document.getElementById("assetDiagnostics").classList.add("hidden");
+    };
     const repairTransparentTexturePreview = async (image) => {
       try {
         const canvas = document.createElement("canvas");
@@ -975,11 +1284,15 @@
     const showNativeTexturePreview = async (entry, request) => {
       const message = document.getElementById("assetMessage");
       const image = document.getElementById("assetImage");
-      message.textContent = "Preparing the native TEX preview…";
+      const textureType = fileExtension(entry.path) === ".dds" ? "DDS" : "TEX";
+      const textureEntryPath = entry.format === "wad-chunk" && entry.wad
+        ? `${entry.wad}/0x${entry.hash}${textureType === "DDS" ? ".dds" : ".tex"}`
+        : entry.displayPath || entry.path;
+      message.textContent = `Preparing the native ${textureType} preview…`;
       message.classList.remove("hidden");
       const preview = await window.__TAURI__.core.invoke("preview_package_texture", {
         sourcePath: loadedPackage.nativePath,
-        entryPath: entry.displayPath || entry.path
+        entryPath: textureEntryPath
       });
       if (request !== previewRequest) return;
       const png = new Uint8Array(preview.pngBytes);
@@ -989,16 +1302,18 @@
       message.classList.add("hidden");
       await image.decode();
       if (request !== previewRequest) return;
-      await repairTransparentTexturePreview(image);
-      if (request !== previewRequest) return;
+      if (textureType === "TEX") {
+        await repairTransparentTexturePreview(image);
+        if (request !== previewRequest) return;
+      }
       fitAssetPreviewImage(image);
       const dimensions = `${image.naturalWidth}×${image.naturalHeight}`;
-      document.getElementById("inspectTag").textContent = `TEX ${dimensions}`;
+      document.getElementById("inspectTag").textContent = `${textureType} ${dimensions}`;
       document.getElementById("selectedPath").textContent = `${image.naturalWidth} × ${image.naturalHeight} · native PNG preview · ${preview.texturePath}`;
       document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${dimensions}`;
       document.getElementById("assetOverlay").classList.add("is-visible");
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
-      if (previewLabel) previewLabel.textContent = `TEX preview · ${dimensions}`;
+      if (previewLabel) previewLabel.textContent = `${textureType} preview · ${dimensions}`;
     };
     const showTexturePreview = async (bytes, entry, request) => {
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
@@ -1019,8 +1334,363 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = `TEX preview · ${preview.width}×${preview.height}`;
     };
+    const showDdsPreview = async (bytes, entry, request) => {
+      const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
+      message.textContent = "Decoding DDS texture preview."; message.classList.remove("hidden");
+      const preview = await ddsToPng(bytes);
+      if (request !== previewRequest) return;
+      currentAssetUrl = URL.createObjectURL(preview.blob);
+      image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
+      await image.decode();
+      if (request !== previewRequest) return;
+      fitAssetPreviewImage(image);
+      document.getElementById("inspectTag").textContent = `DDS ${preview.width}×${preview.height}`;
+      document.getElementById("selectedPath").textContent = `${preview.width} × ${preview.height} · ${preview.format} · ${entry.displayPath || entry.path}`;
+      document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · ${preview.width}×${preview.height}`;
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = `DDS preview · ${preview.width}×${preview.height}`;
+    };
+    const findModelTextureEntry = (modelEntry) => {
+      const modelPath = (modelEntry?.path || "").replace(/\\/g, "/").toLowerCase();
+      const modelDirectory = modelPath.slice(0, modelPath.lastIndexOf("/"));
+      const modelStem = modelPath.split("/").pop()?.replace(/\.[^.]+$/, "") || "";
+      if (!modelDirectory || !currentWadView) return null;
+      const candidates = currentWadView.entries.filter((item) => {
+        const path = (item.path || "").replace(/\\/g, "/").toLowerCase();
+        return item.assetType === "Textures" &&
+          [".tex", ".dds"].includes(fileExtension(path)) &&
+          path.slice(0, path.lastIndexOf("/")) === modelDirectory &&
+          !/(?:^|\/)(?:particles|loadscreen|portraits?)\//i.test(path);
+      });
+      const score = (item) => {
+        const name = (item.path || "").split("/").pop() || "";
+        let value = 0;
+        if (name.toLowerCase().startsWith(modelStem)) value += 20;
+        if (/(?:tx[_-]?cm|diffuse|albedo|base[_-]?color|basecolor)/i.test(name)) value += 100;
+        if (/(?:normal|specular|roughness|mask|metallic|emissive)/i.test(name)) value -= 80;
+        if (/\.tex$/i.test(name)) value += 5;
+        return value;
+      };
+      return candidates.sort((a, b) => score(b) - score(a) || b.size - a.size)[0] || null;
+    };
+    const makeTextureBitmap = async (textureEntry) => {
+      let blob;
+      if (isDesktopApp && loadedPackage?.nativePath) {
+        const extension = fileExtension(textureEntry.path);
+        const wadPath = textureEntry.wad || currentWadView?.sourceEntry?.path;
+        const preview = await window.__TAURI__.core.invoke("preview_package_texture", {
+          sourcePath: loadedPackage.nativePath,
+          entryPath: `${wadPath}/0x${textureEntry.hash}${extension}`
+        });
+        blob = new Blob([new Uint8Array(preview.pngBytes)], { type: "image/png" });
+      } else {
+        if (!currentWadView) throw new Error("Reopen the WAD to load its skin texture.");
+        const bytes = await readWadChunk(currentWadView.bytes, textureEntry);
+        const preview = fileExtension(textureEntry.path) === ".dds" ? await ddsToPng(bytes) : await texToPng(bytes);
+        blob = preview.blob;
+      }
+      if (typeof createImageBitmap !== "function") throw new Error("This device cannot load a texture into the 3D viewer.");
+      return createImageBitmap(blob);
+    };
+    const showModelPreview = (bytes, entry, request, bundle = null) => {
+      if (request !== previewRequest) return;
+      const canvas = document.getElementById("assetModel");
+      const message = document.getElementById("assetMessage");
+      const image = document.getElementById("assetImage");
+      image.classList.add("hidden");
+      message.classList.add("hidden");
+      canvas.classList.remove("hidden");
+      const modelHint = document.getElementById("modelHint");
+      modelHint.textContent = "3D model · drag to rotate · scroll to zoom · double-click to reset";
+      modelHint.classList.remove("hidden");
+      const skeleton = bundle?.skeleton || null;
+      const mesh = window.SableModelPreview.show(canvas, bytes, skeleton);
+      if (mesh.renderingMode === "software") modelHint.textContent = "Software 3D preview · drag to rotate · scroll to zoom · double-click to reset";
+      currentModelController = mesh;
+      const diagnostics = document.getElementById("assetDiagnostics");
+      const setDiagnostic = (id, text, state = "") => {
+        const node = document.getElementById(id);
+        node.textContent = text;
+        if (state) node.dataset.state = state;
+        else delete node.dataset.state;
+      };
+      diagnostics.classList.remove("hidden");
+      setDiagnostic("diagnosticRenderer", mesh.renderingMode === "software" ? "Software renderer" : "WebGL renderer", "ready");
+      setDiagnostic("diagnosticModel", entry.path.split("/").pop() || entry.path, "ready");
+      const controls = document.getElementById("modelControls");
+      const skeletonLabel = document.getElementById("modelSkeletonLabel");
+      const skeletonSelect = document.getElementById("modelSkeleton");
+      const animationSelect = document.getElementById("modelAnimation");
+      const playButton = document.getElementById("modelPlay");
+      const speedSelect = document.getElementById("modelSpeed");
+      const animationInfo = document.getElementById("modelAnimationInfo");
+      const skinTextureControl = document.getElementById("skinTextureControl");
+      const skinTextureSwitch = document.getElementById("skinTextureSwitch");
+      controls.classList.add("hidden");
+      skinTextureControl.classList.add("hidden");
+      skinTextureSwitch.onclick = null;
+      skeletonLabel.classList.add("hidden");
+      skeletonSelect.disabled = false; playButton.disabled = false;
+      skeletonSelect.replaceChildren();
+      animationSelect.replaceChildren();
+      const wadMode = bundle?.mode === "wad";
+      const wadSkeletons = bundle?.skeletons || [];
+      const clips = bundle?.animations || [];
+      if (skeleton) {
+        setDiagnostic("diagnosticSkeleton", `${skeleton.name || skeleton.assetName || "Loaded skeleton"} · ${skeleton.joints.length} joints`, "ready");
+      } else if (wadSkeletons.length && clips.length) {
+        setDiagnostic("diagnosticSkeleton", `Loading one of ${wadSkeletons.length} detected skeletons…`, "loading");
+      } else if (wadSkeletons.length) {
+        setDiagnostic("diagnosticSkeleton", `${wadSkeletons.length} skeletons found; preview remains in bind pose.`, "warning");
+      } else {
+        setDiagnostic("diagnosticSkeleton", "No matching skeleton was found; model is in bind pose.", "warning");
+      }
+      const canPlayPackageClips = Boolean(skeleton && bundle?.skeletonPath && clips.length);
+      const canPlayWadClips = Boolean(wadMode && wadSkeletons.length && clips.length);
+      if (canPlayPackageClips || canPlayWadClips) {
+        let activeSkeleton = skeleton;
+        let activeSkeletonHash = null;
+        let manuallySelectedSkeleton = false;
+        const bindPose = document.createElement("option"); bindPose.value = ""; bindPose.textContent = "Bind pose";
+        animationSelect.append(bindPose);
+        const abilityClip = (clip) => /(?:spell|ability|cast|channel|skill)[a-z0-9_-]*/i.test((clip.name || "").split("/").pop() || "");
+        const clipGroups = [
+          ["Ability animations", clips.filter(abilityClip)],
+          ["Other animations", clips.filter((clip) => !abilityClip(clip))]
+        ].filter(([, items]) => items.length);
+        for (const [label, items] of clipGroups) {
+          const group = document.createElement("optgroup"); group.label = label;
+          for (const clip of items) {
+            const option = document.createElement("option");
+            option.value = wadMode ? clip.hash : clip.path;
+            option.textContent = wadMode ? clip.name.split("/").slice(-2).join("/") : `${clip.name} · ${clip.duration.toFixed(1)}s · ${clip.jointCount} joints`;
+            group.append(option);
+          }
+          animationSelect.append(group);
+        }
+        if (wadMode) {
+          skeletonLabel.classList.remove("hidden");
+          for (const rig of wadSkeletons) {
+            const option = document.createElement("option"); option.value = rig.hash; option.textContent = rig.name;
+            skeletonSelect.append(option);
+          }
+          skeletonSelect.value = wadSkeletons[0].hash;
+        }
+        controls.classList.remove("hidden");
+        let isPlaying = false;
+        animationInfo.textContent = wadMode ? `${wadSkeletons.length} skeletons · ${clips.length} animations in WAD` : `${skeleton.joints.length} joints · ${clips.length} clips`;
+        let rigLoadSequence = 0;
+        let clipLoadSequence = 0;
+        const defaultClip = () => clips.find((clip) => /idle|stand/i.test(clip.name || "")) || clips[0];
+        const loadWadSkeleton = async (hash, { resumeClip = false, autoPlayOnLoad = false } = {}) => {
+          if (!hash || !wadMode || !loadedPackage?.nativePath) return;
+          const previousClipKey = animationSelect.value;
+          const sequence = ++rigLoadSequence;
+          clipLoadSequence++;
+          activeSkeleton = null; activeSkeletonHash = null; mesh.setSkeleton(null);
+          animationSelect.value = ""; mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
+          playButton.textContent = "Play"; playButton.disabled = true; animationSelect.disabled = true; skeletonSelect.disabled = true;
+          setStatus("Loading WAD skeleton");
+          const selectedRig = wadSkeletons.find((rig) => rig.hash === hash);
+          setDiagnostic("diagnosticSkeleton", `Loading ${selectedRig?.name || `skeleton 0x${hash}`}…`, "loading");
+          try {
+            const nextSkeleton = await window.__TAURI__.core.invoke("read_package_wad_skeleton_preview", {
+              sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath, hash
+            });
+            if (request !== previewRequest || currentModelController !== mesh || sequence !== rigLoadSequence) return;
+            activeSkeleton = nextSkeleton; activeSkeletonHash = hash; mesh.setSkeleton(nextSkeleton);
+            setDiagnostic("diagnosticSkeleton", `${selectedRig?.name || nextSkeleton.name || nextSkeleton.assetName || `Skeleton 0x${hash}`} · ${nextSkeleton.joints.length} joints`, "ready");
+            animationInfo.textContent = `${nextSkeleton.joints.length} joints · ${clips.length} WAD animations`;
+            setStatus("WAD skeleton ready");
+            const preferredClip = resumeClip
+              ? clips.find((clip) => clip.hash === previousClipKey)
+              : autoPlayOnLoad ? defaultClip() : null;
+            if (preferredClip) {
+              animationSelect.value = preferredClip.hash;
+              await selectClip();
+            }
+          } catch (error) {
+            if (request === previewRequest && sequence === rigLoadSequence) {
+              const detail = typeof error === "string" ? error : error?.message || "Skeleton could not be loaded";
+              animationInfo.textContent = detail;
+              setDiagnostic("diagnosticSkeleton", `Unavailable: ${detail}`, "error");
+              setStatus("Skeleton unavailable");
+            }
+          } finally {
+            if (sequence === rigLoadSequence) {
+              playButton.disabled = false;
+              animationSelect.disabled = false;
+              skeletonSelect.disabled = false;
+            }
+          }
+        };
+        const selectClip = async () => {
+          const sequence = ++clipLoadSequence;
+          const selectedKey = animationSelect.value;
+          if (!selectedKey) {
+            mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
+            playButton.textContent = "Play";
+            playButton.disabled = false; skeletonSelect.disabled = false;
+            animationInfo.textContent = wadMode ? `${activeSkeleton?.joints.length || 0} joints · bind pose` : "Bind pose";
+            return;
+          }
+          if (wadMode && !activeSkeletonHash) { animationInfo.textContent = "Choose a skeleton first"; return; }
+          const clip = clips.find((item) => (wadMode ? item.hash : item.path) === selectedKey);
+          if (!clip || !loadedPackage?.nativePath) return;
+          mesh.setAnimation(null); mesh.setPlaying(false); isPlaying = false;
+          playButton.textContent = "Play";
+          setStatus(`Loading ${clip.name} animation`);
+          playButton.disabled = true;
+          skeletonSelect.disabled = wadMode;
+          try {
+            const animation = wadMode
+              ? await window.__TAURI__.core.invoke("read_package_wad_animation_preview", {
+                  sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath,
+                  animationHash: clip.hash,
+                  skeletonHashes: manuallySelectedSkeleton
+                    ? [activeSkeletonHash]
+                    : [activeSkeletonHash, ...wadSkeletons.map((rig) => rig.hash).filter((hash) => hash !== activeSkeletonHash)],
+                  animationName: clip.name
+                })
+              : await window.__TAURI__.core.invoke("read_package_animation_preview", {
+                  sourcePath: loadedPackage.nativePath, animationPath: clip.path,
+                  skeletonPath: bundle.skeletonPath
+                });
+            if (request !== previewRequest || currentModelController !== mesh || sequence !== clipLoadSequence) return;
+            if (wadMode && animation.matchedSkeletonHash && animation.matchedSkeletonHash !== activeSkeletonHash) {
+              const matchedSkeleton = await window.__TAURI__.core.invoke("read_package_wad_skeleton_preview", {
+                sourcePath: loadedPackage.nativePath, wadPath: bundle.wadPath, hash: animation.matchedSkeletonHash
+              });
+              if (request !== previewRequest || currentModelController !== mesh || sequence !== clipLoadSequence) return;
+              activeSkeleton = matchedSkeleton;
+              activeSkeletonHash = animation.matchedSkeletonHash;
+              skeletonSelect.value = activeSkeletonHash;
+              mesh.setSkeleton(matchedSkeleton);
+            }
+            mesh.setAnimation(animation); mesh.setPlaying(true); isPlaying = true;
+            playButton.textContent = "Pause";
+            animationInfo.textContent = `${animation.name} · ${animation.duration.toFixed(1)}s · ${animation.fps.toFixed(0)} fps`;
+            setStatus(`${animation.name} animation ready`);
+          } catch (error) {
+            if (request === previewRequest && sequence === clipLoadSequence) {
+              animationInfo.textContent = typeof error === "string" ? error : error?.message || "Animation could not be loaded";
+              setStatus("Animation unavailable");
+            }
+          } finally {
+            if (sequence === clipLoadSequence) { playButton.disabled = false; skeletonSelect.disabled = false; }
+          }
+        };
+        skeletonSelect.onchange = () => {
+          manuallySelectedSkeleton = true;
+          loadWadSkeleton(skeletonSelect.value, { resumeClip: true });
+        };
+        animationSelect.onchange = async () => {
+          await selectClip();
+        };
+        playButton.onclick = () => {
+          if (!animationSelect.value) {
+            const firstClip = defaultClip();
+            if (!firstClip) return;
+            animationSelect.value = wadMode ? firstClip.hash : firstClip.path;
+            animationSelect.dispatchEvent(new Event("change"));
+            return;
+          }
+          isPlaying = !isPlaying;
+          mesh.setPlaying(isPlaying);
+          playButton.textContent = isPlaying ? "Pause" : "Play";
+        };
+        speedSelect.onchange = () => mesh.setSpeed(speedSelect.value);
+        if (canPlayWadClips) loadWadSkeleton(skeletonSelect.value, { autoPlayOnLoad: true });
+        else if (canPlayPackageClips) {
+          const firstClip = defaultClip();
+          if (firstClip) {
+            animationSelect.value = firstClip.path;
+            selectClip();
+          }
+        }
+      } else {
+        skeletonSelect.onchange = null; animationSelect.onchange = null; playButton.onclick = null; speedSelect.onchange = null;
+        document.getElementById("modelHint").textContent = skeleton
+          ? "Skeleton found · no matching animation clips are included in this package"
+          : "Untextured mesh · drag to rotate · scroll to zoom · double-click to reset";
+      }
+      document.getElementById("inspectTag").textContent = "3D SKN";
+      const rigNote = skeleton ? ` · ${skeleton.joints.length} joints` : bundle?.skeletons?.length ? ` · ${bundle.skeletons.length} skeletons available` : "";
+      document.getElementById("selectedPath").textContent = `${mesh.sourceVertices.toLocaleString()} vertices · ${mesh.triangles.toLocaleString()} triangles · ${mesh.parts} parts${rigNote} · ${entry.displayPath || entry.path}`;
+      document.getElementById("assetPreviewTitle").textContent = `${entry.path.split("/").pop() || entry.path} · 3D model`;
+      document.getElementById("assetOverlay").classList.add("is-visible");
+      const previewLabel = document.querySelectorAll(".canvas-label span")[1];
+      if (previewLabel) previewLabel.textContent = "3D mesh preview";
+      setStatus("3D model ready");
+      const textureEntry = bundle?.textureEntry;
+      if (textureEntry) {
+        const textureName = textureEntry.path.split("/").pop() || textureEntry.path;
+        setDiagnostic("diagnosticTexture", `Found ${textureEntry.path}`, "loading");
+        skinTextureControl.classList.remove("hidden");
+        skinTextureSwitch.classList.add("off");
+        skinTextureSwitch.disabled = false;
+        skinTextureSwitch.setAttribute("aria-checked", "false");
+        let bitmap = null;
+        let textureLoading = false;
+        let textureEnabled = false;
+        const switchTexture = async (enabled) => {
+          if (textureLoading || request !== previewRequest || currentModelController !== mesh) return;
+          if (!enabled) {
+            textureEnabled = false;
+            mesh.setTextured(false);
+            skinTextureSwitch.classList.add("off");
+            skinTextureSwitch.setAttribute("aria-checked", "false");
+            modelHint.textContent = mesh.renderingMode === "software"
+              ? "Software 3D preview · drag to rotate · scroll to zoom · double-click to reset"
+              : "3D model · drag to rotate · scroll to zoom · double-click to reset";
+            setStatus("Skin texture off");
+            setDiagnostic("diagnosticTexture", `Detected, currently off · ${textureName}`, "warning");
+            return;
+          }
+          textureLoading = true;
+          skinTextureSwitch.disabled = true;
+          skinTextureSwitch.setAttribute("aria-busy", "true");
+          setStatus("Loading skin texture");
+          setDiagnostic("diagnosticTexture", `Loading ${textureName}…`, "loading");
+          try {
+            if (!bitmap) bitmap = await makeTextureBitmap(textureEntry);
+            if (request !== previewRequest || currentModelController !== mesh) { bitmap.close?.(); return; }
+            mesh.setTexture(bitmap);
+            if (!mesh.setTextured(true)) throw new Error("This graphics device could not apply the skin texture.");
+            textureEnabled = true;
+            skinTextureSwitch.classList.remove("off");
+            skinTextureSwitch.setAttribute("aria-checked", "true");
+            modelHint.textContent = mesh.renderingMode === "software"
+              ? "Textured software preview · drag to rotate · scroll to zoom · double-click to reset"
+              : "Textured 3D model · drag to rotate · scroll to zoom · double-click to reset";
+            setDiagnostic("diagnosticTexture", `Applied · ${textureEntry.path}`, "ready");
+            setStatus("Skin texture on");
+          } catch (error) {
+            textureEnabled = false;
+            skinTextureSwitch.classList.add("off");
+            skinTextureSwitch.setAttribute("aria-checked", "false");
+            mesh.setTextured(false);
+            modelHint.textContent = `Skin texture unavailable: ${typeof error === "string" ? error : error?.message || "unknown error"}`;
+            setDiagnostic("diagnosticTexture", `Failed: ${typeof error === "string" ? error : error?.message || "unknown error"}`, "error");
+            setStatus("Skin texture unavailable");
+          } finally {
+            textureLoading = false;
+            if (request === previewRequest && currentModelController === mesh) {
+              skinTextureSwitch.disabled = false;
+              skinTextureSwitch.removeAttribute("aria-busy");
+            }
+          }
+        };
+        skinTextureSwitch.onclick = () => switchTexture(!textureEnabled);
+        switchTexture(true);
+      } else setDiagnostic("diagnosticTexture", wadMode
+        ? "No matching skin texture was found; showing the mesh colors."
+        : "Texture lookup is not available for this package model.", "warning");
+    };
     const selectPackageEntry = async (entry, row) => {
       const request = ++previewRequest;
+      document.getElementById("assetDiagnostics").classList.add("hidden");
       document.getElementById("workspaceFileLabel").textContent = entry.displayPath || entry.path;
       document.querySelectorAll(".asset-row").forEach((node) => node.classList.toggle("selected", node === row));
       document.getElementById("gamePreview").classList.add("asset-mode");
@@ -1028,6 +1698,8 @@
       const previewLabel = document.querySelectorAll(".canvas-label span")[1];
       if (previewLabel) previewLabel.textContent = "Loading selected asset…";
       document.getElementById("visualControls").classList.add("hidden");
+      document.getElementById("skinTextureControl").classList.add("hidden");
+      document.getElementById("skinTextureSwitch").onclick = null;
       document.getElementById("assetReadOnly").classList.remove("hidden");
       document.getElementById("inspectEyebrow").textContent = entry.format === "wad-chunk" ? "WAD asset" : "Package entry";
       const displayPath = entry.displayPath || entry.path;
@@ -1036,14 +1708,84 @@
       document.getElementById("selectedPath").textContent = `${prettyBytes(entry.size)} · ${displayPath}`;
       document.getElementById("assetPreviewTitle").textContent = displayPath;
       const image = document.getElementById("assetImage"); const message = document.getElementById("assetMessage");
+      clearModelPreview();
       image.classList.add("hidden"); image.removeAttribute("src");
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
 
       try {
-        if (isDesktopApp && loadedPackage?.nativePath && (fileExtension(entry.path) === ".tex" || (entry.format === "wad-chunk" && entry.assetType === "Textures"))) {
+        if (isDesktopApp && loadedPackage?.nativePath && fileExtension(entry.path) === ".dds") {
+          await showNativeTexturePreview(entry, request);
+          if (request !== previewRequest) return;
+          setStatus("DDS preview ready");
+          return;
+        }
+        if (entry.format === "wad-chunk" && (entry.assetType === "Textures" || [".tex", ".dds"].includes(fileExtension(entry.path)))) {
+          if (!currentWadView) throw new Error("Go back to the package and open the WAD again.");
+          const data = await readWadChunk(currentWadView.bytes, entry);
+          if (request !== previewRequest) return;
+          if (data[0] === 0x44 && data[1] === 0x44 && data[2] === 0x53 && data[3] === 0x20) {
+            await showDdsPreview(data, entry, request);
+            setStatus("DDS preview ready");
+          } else if (data[0] === 0x54 && data[1] === 0x45 && data[2] === 0x58 && data[3] === 0) {
+            await showTexturePreview(data, entry, request);
+            setStatus("TEX preview ready");
+          } else {
+            throw new Error("This WAD entry is not a readable DDS or TEX texture.");
+          }
+          return;
+        }
+        if (entry.format !== "wad-chunk" && fileExtension(entry.path) === ".dds") {
+          const data = await readPackageEntry(entry);
+          if (request !== previewRequest) return;
+          await showDdsPreview(data, entry, request);
+          setStatus("DDS preview ready");
+          return;
+        }
+        if (isDesktopApp && loadedPackage?.nativePath && fileExtension(entry.path) === ".tex") {
           await showNativeTexturePreview(entry, request);
           if (request !== previewRequest) return;
           setStatus("TEX preview ready");
+          return;
+        }
+        if (isDesktopApp && loadedPackage?.nativePath && entry.format !== "wad-chunk" && fileExtension(entry.path) === ".skn") {
+          const bundle = await window.__TAURI__.core.invoke("read_package_model_preview_bundle", {
+            sourcePath: loadedPackage.nativePath,
+            entryPath: entry.displayPath || entry.path
+          });
+          bundle.modelBytes = new Uint8Array(bundle.modelBytes);
+          showModelPreview(bundle.modelBytes, entry, request, bundle);
+          return;
+        }
+        if (isDesktopApp && loadedPackage?.nativePath && entry.format === "wad-chunk" && entry.assetType === "Models") {
+          const bytes = await window.__TAURI__.core.invoke("read_package_wad_model", {
+            sourcePath: loadedPackage.nativePath,
+            wadPath: currentWadView.sourceEntry.path,
+            hash: entry.hash
+          });
+          const modelPath = (entry.path || "").replace(/\\/g, "/").toLowerCase();
+          const modelDirectory = modelPath.slice(0, modelPath.lastIndexOf("/"));
+          const expectedSkeletonPath = modelPath.replace(/\.skn$/i, ".skl");
+          const byModelPath = (a, b, exactPath) => {
+            const score = (item) => {
+              const path = (item.path || "").replace(/\\/g, "/").toLowerCase();
+              if (path === exactPath) return 0;
+              if (modelDirectory && path.startsWith(modelDirectory + "/")) return 1;
+              return 2;
+            };
+            return score(a) - score(b) || (a.path || a.hash).localeCompare(b.path || b.hash);
+          };
+          const skeletons = currentWadView.entries.filter((item) => item.assetType === "Skeletons")
+            .sort((a, b) => byModelPath(a, b, expectedSkeletonPath));
+          const animations = currentWadView.entries.filter((item) => item.assetType === "Animations")
+            .sort((a, b) => byModelPath(a, b, ""));
+          const bundle = {
+            mode: "wad",
+            wadPath: currentWadView.sourceEntry.path,
+            skeletons: skeletons.map((item, index) => ({ hash: item.hash, name: item.path || `Skeleton ${index + 1} · 0x${item.hash}` })),
+            animations: animations.map((item, index) => ({ hash: item.hash, name: item.path || `Animation ${index + 1} · 0x${item.hash}` })),
+            textureEntry: findModelTextureEntry(entry)
+          };
+          showModelPreview(new Uint8Array(bytes), entry, request, bundle);
           return;
         }
         if (entry.format === "wad-chunk") {
@@ -1054,6 +1796,11 @@
           if (data.length >= 4 && data[0] === 0x54 && data[1] === 0x45 && data[2] === 0x58 && data[3] === 0) {
             await showTexturePreview(data, entry, request);
             setStatus("TEX preview ready");
+          } else if (data.length >= 4 && new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true) === 0x00112233) {
+            showModelPreview(data, entry, request);
+          } else if (data.length >= 4 && data[0] === 0x44 && data[1] === 0x44 && data[2] === 0x53 && data[3] === 0x20) {
+            message.textContent = `DDS texture · ${prettyBytes(entry.size)}. Sable can preview DDS textures in the Windows desktop app.`;
+            message.classList.remove("hidden");
           } else {
             const magic = [...data.subarray(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ").toUpperCase();
             message.textContent = `${entry.assetType} · ${entry.compressionName} · ${prettyBytes(entry.size)} · header ${magic}. This entry is opened and identified, but it does not have an image preview.`;
@@ -1075,27 +1822,46 @@
           if (request !== previewRequest) return;
           document.getElementById("wadBack").classList.remove("hidden");
           document.getElementById("assetSearch").value = "";
+          document.getElementById("assetTypeFilter").value = "all";
           renderPackageFiles(wad.entries, "WAD entries");
           document.getElementById("selectedName").textContent = `${wad.entries.length} WAD entries`;
           document.getElementById("inspectTag").textContent = `WAD ${wad.version}`;
-          document.getElementById("selectedPath").textContent = `${displayPath} · ${wad.entries.length} hashed entries`;
+          document.getElementById("selectedPath").textContent = `${displayPath} · ${wad.entries.length} entries`;
           document.getElementById("assetPreviewTitle").textContent = `${displayPath} · WAD ${wad.version}`;
           const groups = Object.create(null);
           wad.entries.forEach((item) => { groups[item.assetType] = (groups[item.assetType] || 0) + 1; });
           const summary = Object.entries(groups).map(([name, count]) => `${name}: ${count}`).join(" · ");
           message.textContent = classified
-            ? `${wad.entries.length} internal entries grouped by detected file type (${summary}). WAD paths are stored as hashes, so Sable shows each asset's hash.`
-            : `${wad.entries.length} internal entries indexed. This browser cannot decode Zstandard, so Sable cannot classify or preview compressed entries here.`;
+            ? `${wad.entries.length} WAD entries grouped by detected type (${summary}). Sable opens the largest skin model automatically.`
+            : `${wad.entries.length} WAD entries indexed, but Sable could not decode any entries to identify their types. Reopen the WAD after checking its compression support.`;
           message.classList.remove("hidden");
           setStatus(`WAD ${wad.version} · ${wad.entries.length} entries`);
+          const models = wad.entries.filter((item) => item.assetType === "Models");
+          const namedSkinModels = models.filter((item) => /(?:^|\/)(?:characters|champions)\/[^/]+\/skins\//i.test(item.path || ""));
+          const firstModel = (namedSkinModels.length ? namedSkinModels : models)
+            .sort((a, b) => b.size - a.size || (a.path || a.hash).localeCompare(b.path || b.hash, undefined, { numeric: true, sensitivity: "base" }))[0];
+          if (firstModel) {
+            const modelRow = [...document.querySelectorAll(".asset-row")]
+              .find((node) => node.dataset.entryKey === firstModel.hash);
+            await selectPackageEntry(firstModel, modelRow || null);
+          }
           return;
         }
 
         const data = await readPackageEntry(entry);
         if (request !== previewRequest) return;
+        if (fileExtension(entry.path) === ".skn") {
+          showModelPreview(data, entry, request);
+          return;
+        }
         if (fileExtension(entry.path) === ".tex") {
           await showTexturePreview(data, entry, request);
           setStatus("TEX preview ready");
+          return;
+        }
+        if (fileExtension(entry.path) === ".dds") {
+          message.textContent = `DDS texture · ${prettyBytes(entry.size)}. Sable can preview DDS textures in the Windows desktop app.`;
+          message.classList.remove("hidden");
           return;
         }
         const mime = IMAGE_MIME[fileExtension(entry.path)];
@@ -1108,8 +1874,22 @@
         image.src = currentAssetUrl; image.classList.remove("hidden"); message.classList.add("hidden");
       } catch (error) {
         if (request !== previewRequest) return;
-        message.textContent = error.message || "Sable could not open this package entry.";
+        clearModelPreview();
+        const detail = typeof error === "string" ? error : error?.message || "Sable could not open this package entry.";
+        message.textContent = detail;
         message.classList.remove("hidden");
+        if (entry.assetType === "Models" || fileExtension(entry.path) === ".skn") {
+          document.getElementById("assetDiagnostics").classList.remove("hidden");
+          document.getElementById("diagnosticRenderer").textContent = "Unavailable";
+          document.getElementById("diagnosticRenderer").dataset.state = "error";
+          document.getElementById("diagnosticModel").textContent = `Preview failed: ${detail}`;
+          document.getElementById("diagnosticModel").dataset.state = "error";
+          document.getElementById("diagnosticTexture").textContent = "Not checked";
+          document.getElementById("diagnosticTexture").removeAttribute("data-state");
+          document.getElementById("diagnosticSkeleton").textContent = "Not checked";
+          document.getElementById("diagnosticSkeleton").removeAttribute("data-state");
+        }
+        setStatus("Could not open asset");
       }
     };
     const safeFileSegment = (value) => String(value || "unnamed").replace(/[<>:"|?*\x00-\x1f]/g, "_").replace(/[. ]+$/g, "").slice(0, 120) || "unnamed";
@@ -1153,9 +1933,9 @@
       const magic = String.fromCharCode(...bytes.subarray(0, 4));
       if (magic.slice(0, 3) === "TEX") return "tex";
       if (magic === "DDS ") return "dds";
-      if (magic.slice(0, 3) === "SKN") return "skn";
-      if (magic.slice(0, 3) === "SKL") return "skl";
-      if (magic.slice(0, 3) === "ANM") return "anm";
+      if (bytes.length >= 4 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) === 0x00112233) return "skn";
+      if (bytes.length >= 8 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === 0x22fd4fc3) return "skl";
+      if (magic === "r3d2" && ["canm", "anmd"].includes(String.fromCharCode(...bytes.subarray(4, 8)))) return "anm";
       if (magic.slice(0, 3) === "SCB") return "scb";
       if (magic.slice(0, 3) === "SCO") return "sco";
       if (magic === "PROP" || magic === "PTCH") return "bin";
@@ -1262,6 +2042,7 @@
       document.getElementById("assetsView").classList.toggle("hidden", view !== "assets");
       setCanvasState(!loadedPackage ? "empty" : view === "elements" ? "sample" : "assets");
       if (view === "elements") {
+        clearModelPreview();
         previewRequest++;
         document.getElementById("gamePreview").classList.remove("asset-mode");
         document.getElementById("assetOverlay").classList.remove("is-visible");
@@ -1280,10 +2061,12 @@
     const returnToPackageFiles = () => {
       if (!loadedPackage) return;
       previewRequest++;
+      clearModelPreview();
       currentWadView = null;
       if (currentAssetUrl) { URL.revokeObjectURL(currentAssetUrl); currentAssetUrl = null; }
       document.getElementById("wadBack").classList.add("hidden");
       document.getElementById("assetSearch").value = "";
+      document.getElementById("assetTypeFilter").value = "all";
       renderPackageFiles(loadedPackage.entries);
       const name = loadedPackage.metadata.display_name || loadedPackage.metadata.name || loadedPackage.metadata.Name || loadedPackage.file.name;
       document.getElementById("selectedName").textContent = name;
@@ -1300,6 +2083,8 @@
     const openModFile = async (file) => {
       if (!file) return;
       previewRequest++;
+      wadClassificationCache.clear();
+      clearModelPreview();
       setStatus("Reading package…");
       document.getElementById("openFile").disabled = true;
       document.getElementById("unpackBtn").disabled = true;
@@ -1336,6 +2121,7 @@
         document.getElementById("unpackBtn").disabled = false;
         renderPackageMeta(metadata, file.name);
         document.getElementById("assetSearch").value = "";
+        document.getElementById("assetTypeFilter").value = "all";
         renderPackageFiles(archive.entries);
         switchSidebarView("assets");
         document.getElementById("inspectEyebrow").textContent = "Package";
@@ -1351,8 +2137,8 @@
         document.getElementById("assetImage").classList.add("hidden");
         document.getElementById("assetMessage").classList.remove("hidden");
         document.getElementById("assetMessage").textContent = format === "modpkg"
-          ? "Choose an asset group. TEX entries open as image previews; entries are organized by type and target WAD."
-          : "Choose an asset group. Open a WAD archive to browse its internal entries, or select a supported image to preview it.";
+          ? "Choose an asset group. TEX files show image previews; SKN models show rotatable 3D meshes."
+          : "Open the character WAD to preview its 3D skin model. Sable keeps the WAD list available for selecting another model, skeleton, or animation.";
         setStatus(`${format.toUpperCase()} loaded`);
         toast(`Opened ${file.name} · ${archive.entries.length} entries`);
       } catch (error) {
@@ -1499,30 +2285,8 @@
       document.getElementById("repackBtn").disabled = false;
       setStatus("Workspace ready to repack");
     }
-    document.getElementById("assetSearch").addEventListener("input", (event) => {
-      const query = event.target.value.trim().toLowerCase();
-      const rows = [...document.querySelectorAll(".asset-row")];
-      let visible = 0;
-      rows.forEach((row) => {
-        const match = row.dataset.search.includes(query);
-        row.classList.toggle("hidden", !match);
-        if (match) visible++;
-      });
-      document.querySelectorAll(".asset-group").forEach((group) => {
-        const matches = group.querySelectorAll(".asset-row:not(.hidden)").length;
-        group.classList.toggle("hidden", matches === 0);
-        if (query && matches) group.open = true;
-      });
-      let empty = document.getElementById("assetSearchEmpty");
-      if (!empty) {
-        empty = document.createElement("div");
-        empty.id = "assetSearchEmpty";
-        empty.className = "asset-empty-list";
-        empty.textContent = "No files match your search.";
-      }
-      if (query && visible === 0) document.getElementById("packageFiles").append(empty);
-      else empty.remove();
-    });
+    document.getElementById("assetSearch").addEventListener("input", applyAssetFilters);
+    document.getElementById("assetTypeFilter").addEventListener("change", applyAssetFilters);
     const setCanvasState = (state) => {
       const labels = document.querySelectorAll(".canvas-label span");
       document.getElementById("assetOverlay").classList.toggle("is-visible", state === "assets");
