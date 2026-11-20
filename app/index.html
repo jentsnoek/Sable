@@ -995,7 +995,8 @@
         if (champion && wadName && champion.toLowerCase() === wadName) champion = wadName;
         return champion ? "Champions · " + titleCase(champion) + " · " + label : label;
       }
-      if (entry.format === "wad-chunk" && (entry.assetType === "Abilities & VFX" || parts.includes("particles"))) {
+      const isParticleAsset = parts.includes("particles");
+      if (entry.format === "wad-chunk" && entry.assetType === "Abilities & VFX") {
         return champion ? "Champions · " + titleCase(champion) + " · Abilities & VFX" : "Abilities & VFX";
       }
       const isHud = path.includes("assets/ux/") || parts.some((part) => part === "hud" || part === "ui" || part === "ux" || part.includes("atlas") || part.includes("scoreboard") || part.includes("minimap") || part.includes("healthbar") || part.includes("health_bar") || part.includes("abilitybar")) || parts.some((part) => part.startsWith("ui.wad"));
@@ -1007,6 +1008,7 @@
         if (entry.assetType === "Game data") return championName + " · Data";
         if (entry.assetType === "Audio" || [".bnk", ".wem", ".wpk", ".ogg", ".wav"].includes(extension)) return championName + " · Audio";
         if (entry.assetType === "Images" || IMAGE_MIME[extension]) return championName + " · Images";
+        if (isParticleAsset) return championName + " · Abilities & VFX";
         if (entry.assetType === "Other WAD entries" || entry.assetType === "Unclassified WAD entries") return championName + " · Other assets";
         return championName;
       }
@@ -1015,6 +1017,7 @@
       if (entry.format === "wad-chunk") {
         if (entry.assetType === "Textures" || [".tex", ".dds"].includes(extension)) return extension === ".dds" ? "DDS textures" : "Textures";
         if (entry.assetType === "Images" || IMAGE_MIME[extension]) return "Images";
+        if (isParticleAsset && ["Other WAD entries", "Unclassified WAD entries"].includes(entry.assetType)) return "Abilities & VFX";
         return entry.assetType || "Other game assets";
       }
       if ([".tex", ".dds"].includes(extension)) return "Textures";
@@ -1030,7 +1033,7 @@
       list.replaceChildren();
       const hasHashedWadEntries = entries.some((entry) => entry.format === "wad-chunk");
       document.getElementById("assetGuide").textContent = hasHashedWadEntries
-        ? "WAD assets are grouped by champion and role. Single file groups are folded together, and leftover files are grouped by type. Open a skin model for a 3D preview, then use Skin texture to toggle its texture."
+        ? "WAD assets are grouped by champion and role. Textures stay separate from particle effects, and single-file groups are folded together. Open a skin model for a 3D preview, then use Skin texture to toggle its texture."
         : "Files are grouped by their role. Open a TEX or DDS texture, or an SKN model, to preview it.";
       document.getElementById("assetCount").textContent = `${entries.length} ${countLabel}`;
       if (!entries.length) {
