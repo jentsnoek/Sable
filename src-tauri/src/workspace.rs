@@ -13,6 +13,7 @@ use ltk_texture::{
 use ltk_wad::{Wad, WadHash};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tauri::Emitter;
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -313,6 +314,15 @@ pub struct WadAssetEntry {
     extension: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WadInspectionProgress {
+    request_id: u64,
+    wad_path: String,
+    completed: usize,
+    total: usize,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelPreviewBundle {
@@ -378,11 +388,22 @@ pub struct AnimationJointSample {
 
 #[tauri::command]
 pub async fn inspect_package_wad_assets(
+    app: tauri::AppHandle,
     source_path: String,
     wad_path: String,
+    request_id: u64,
 ) -> Result<Vec<WadAssetEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        inspect_package_wad_assets_blocking(source_path, wad_path)
+        let progress_app = app.clone();
+        let progress_wad_path = wad_path.clone();
+        inspect_package_wad_assets_blocking(source_path, wad_path, move |completed, total| {
+            let _ = progress_app.emit("wad-inspection-progress", WadInspectionProgress {
+                request_id,
+                wad_path: progress_wad_path.clone(),
+                completed,
+                total,
+            });
+        })
     })
     .await
     .map_err(|error| error.to_string())?
@@ -391,6 +412,7 @@ pub async fn inspect_package_wad_assets(
 fn inspect_package_wad_assets_blocking(
     source_path: String,
     wad_path: String,
+    mut report_progress: impl FnMut(usize, usize),
 ) -> Result<Vec<WadAssetEntry>, String> {
     let mut wad = open_package_wad(&source_path, &wad_path)?;
 
@@ -399,36 +421,41 @@ fn inspect_package_wad_assets_blocking(
     let mut resolved_paths = HashMap::new();
     let mut chunk_sizes = HashMap::new();
     let mut recognized_hashes = std::collections::HashSet::new();
-    for chunk in chunks {
-        if chunk.uncompressed_size() > 256 * 1024 * 1024 {
-            continue;
-        }
-        if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
-            let hash = format!("{:016x}", chunk.path_hash());
-            chunk_sizes.insert(hash.clone(), bytes.len());
-            if bytes.starts_with(b"PROP")
-                || bytes.starts_with(b"PTCH")
-                || bytes.starts_with(b"#PROP_")
-                || bytes.starts_with(b"#PTCH_")
-            {
-                for path in extract_wad_path_references(&bytes) {
-                    let referenced_hash = WadHash::hash_str(&path);
-                    if wad.chunks().contains(referenced_hash) {
-                        resolved_paths.entry(format!("{referenced_hash:016x}")).or_insert(path);
+    let total_chunks = chunks.len();
+    report_progress(0, total_chunks);
+    for (index, chunk) in chunks.into_iter().enumerate() {
+        if chunk.uncompressed_size() <= 256 * 1024 * 1024 {
+            if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
+                let hash = format!("{:016x}", chunk.path_hash());
+                chunk_sizes.insert(hash.clone(), bytes.len());
+                if bytes.starts_with(b"PROP")
+                    || bytes.starts_with(b"PTCH")
+                    || bytes.starts_with(b"#PROP_")
+                    || bytes.starts_with(b"#PTCH_")
+                {
+                    for path in extract_wad_path_references(&bytes) {
+                        let referenced_hash = WadHash::hash_str(&path);
+                        if wad.chunks().contains(referenced_hash) {
+                            resolved_paths.entry(format!("{referenced_hash:016x}")).or_insert(path);
+                        }
                     }
                 }
+                let kind = classify_wad_asset(&bytes);
+                if let Some((asset_type, extension)) = kind {
+                    recognized_hashes.insert(hash.clone());
+                    assets.push(WadAssetEntry {
+                        path: resolved_paths.get(&hash).cloned(),
+                        hash,
+                        size: bytes.len(),
+                        asset_type: asset_type.to_owned(),
+                        extension: extension.to_owned(),
+                    });
+                }
             }
-            let kind = classify_wad_asset(&bytes);
-            if let Some((asset_type, extension)) = kind {
-                recognized_hashes.insert(hash.clone());
-                assets.push(WadAssetEntry {
-                    path: resolved_paths.get(&hash).cloned(),
-                    hash,
-                    size: bytes.len(),
-                    asset_type: asset_type.to_owned(),
-                    extension: extension.to_owned(),
-                });
-            }
+        }
+        let completed = index + 1;
+        if completed % 32 == 0 || completed == total_chunks {
+            report_progress(completed, total_chunks);
         }
     }
     for asset in &mut assets {
