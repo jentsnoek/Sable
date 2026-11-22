@@ -3,6 +3,9 @@ use ltk_mod_project::{
     modpkg::{ModpkgFormat, ModpkgImporter},
     ProjectImporter, ProjectPacker,
 };
+use ltk_anim::{Animation, AnimationAsset, RigResource};
+use ltk_hash::{BinHash, Hash as _};
+use ltk_meta::Bin as PropertyBin;
 use ltk_texture::{
     tex::{EncodeFormat, EncodeOptions, Format, MipmapFilter},
     Tex,
@@ -10,9 +13,11 @@ use ltk_texture::{
 use ltk_wad::{Wad, WadHash};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tauri::Emitter;
 use std::{
+    collections::HashMap,
     fs::{self, File},
-    io::{BufReader, BufWriter, Cursor},
+    io::{BufReader, BufWriter, Cursor, Read},
     path::{Component, Path, PathBuf},
     process::Command,
     sync::Mutex,
@@ -254,6 +259,7 @@ fn preview_package_texture_blocking(
 ) -> Result<TexturePreviewResult, String> {
     let workspace = ensure_preview_workspace(&source_path)?;
     let workspace_manifest = read_workspace_manifest(&workspace)?;
+    let project_dir = safe_child(&workspace, &workspace_manifest.project_dir)?;
     let texture_map_path = safe_child(&workspace, &workspace_manifest.texture_manifest)?;
     let manifest: TextureManifest = serde_json::from_slice(
         &fs::read(texture_map_path)
@@ -286,57 +292,525 @@ fn preview_package_texture_blocking(
         return Err(format!("More than one TEX file matches this path: {entry_path}"));
     }
 
-    preview_wad_texture(&workspace, &requested, &entry_path)
+    if requested.ends_with(".dds") {
+        if let Ok(dds_file) = find_project_file(&project_dir, &entry_path) {
+            let bytes = fs::read(&dds_file).map_err(|error| format!("Could not read DDS texture: {error}"))?;
+            if bytes.starts_with(b"DDS ") {
+                return decode_dds_preview(&bytes, &entry_path);
+            }
+        }
+    }
+
+    preview_wad_texture(&source_path, &requested, &entry_path)
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WadTextureEntry {
+pub struct WadAssetEntry {
     hash: String,
+    path: Option<String>,
     size: usize,
+    asset_type: String,
+    extension: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WadInspectionProgress {
+    request_id: u64,
+    wad_path: String,
+    completed: usize,
+    total: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPreviewBundle {
+    model_bytes: Vec<u8>,
+    skeleton: Option<SkeletonPreview>,
+    skeleton_path: Option<String>,
+    animations: Vec<AnimationPreviewInfo>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkeletonPreview {
+    name: String,
+    asset_name: String,
+    influences: Vec<i16>,
+    joints: Vec<SkeletonJointPreview>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkeletonJointPreview {
+    name: String,
+    hash: u32,
+    id: i16,
+    parent_id: i16,
+    local_translation: [f32; 3],
+    local_rotation: [f32; 4],
+    local_scale: [f32; 3],
+    inverse_bind_matrix: [f32; 16],
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimationPreviewInfo {
+    path: String,
+    name: String,
+    duration: f32,
+    fps: f32,
+    joint_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimationPreview {
+    name: String,
+    duration: f32,
+    fps: f32,
+    sample_rate: f32,
+    matched_skeleton_hash: Option<String>,
+    #[serde(skip_serializing)]
+    matched_joint_count: usize,
+    frames: Vec<Vec<AnimationJointSample>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnimationJointSample {
+    joint: usize,
+    rotation: [f32; 4],
+    translation: [f32; 3],
+    scale: [f32; 3],
 }
 
 #[tauri::command]
-pub async fn inspect_package_wad_textures(
+pub async fn inspect_package_wad_assets(
+    app: tauri::AppHandle,
     source_path: String,
     wad_path: String,
-) -> Result<Vec<WadTextureEntry>, String> {
+    request_id: u64,
+) -> Result<Vec<WadAssetEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        inspect_package_wad_textures_blocking(source_path, wad_path)
+        let progress_app = app.clone();
+        let progress_wad_path = wad_path.clone();
+        inspect_package_wad_assets_blocking(source_path, wad_path, move |completed, total| {
+            let _ = progress_app.emit("wad-inspection-progress", WadInspectionProgress {
+                request_id,
+                wad_path: progress_wad_path.clone(),
+                completed,
+                total,
+            });
+        })
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
-fn inspect_package_wad_textures_blocking(
+fn inspect_package_wad_assets_blocking(
     source_path: String,
     wad_path: String,
-) -> Result<Vec<WadTextureEntry>, String> {
-    let workspace = ensure_preview_workspace(&source_path)?;
-    let workspace_manifest = read_workspace_manifest(&workspace)?;
-    let project_dir = safe_child(&workspace, &workspace_manifest.project_dir)?;
-    let wad_file = find_wad_file(&project_dir, &wad_path)?;
-    let mut wad = Wad::mount(
-        File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
-    )
-    .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+    mut report_progress: impl FnMut(usize, usize),
+) -> Result<Vec<WadAssetEntry>, String> {
+    let mut wad = open_package_wad(&source_path, &wad_path)?;
 
     let chunks: Vec<_> = wad.chunks().iter().copied().collect();
-    let mut textures = Vec::new();
-    for chunk in chunks {
-        if chunk.uncompressed_size() > 256 * 1024 * 1024 {
-            continue;
-        }
-        if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
-            if bytes.starts_with(b"TEX\0") {
-                textures.push(WadTextureEntry {
-                    hash: format!("{:016x}", chunk.path_hash()),
-                    size: bytes.len(),
-                });
+    let mut assets = Vec::new();
+    let mut resolved_paths = HashMap::new();
+    let mut chunk_sizes = HashMap::new();
+    let mut recognized_hashes = std::collections::HashSet::new();
+    let total_chunks = chunks.len();
+    report_progress(0, total_chunks);
+    for (index, chunk) in chunks.into_iter().enumerate() {
+        if chunk.uncompressed_size() <= 256 * 1024 * 1024 {
+            if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
+                let hash = format!("{:016x}", chunk.path_hash());
+                chunk_sizes.insert(hash.clone(), bytes.len());
+                if bytes.starts_with(b"PROP")
+                    || bytes.starts_with(b"PTCH")
+                    || bytes.starts_with(b"#PROP_")
+                    || bytes.starts_with(b"#PTCH_")
+                {
+                    for path in extract_wad_path_references(&bytes) {
+                        let referenced_hash = WadHash::hash_str(&path);
+                        if wad.chunks().contains(referenced_hash) {
+                            resolved_paths.entry(format!("{referenced_hash:016x}")).or_insert(path);
+                        }
+                    }
+                }
+                let kind = classify_wad_asset(&bytes);
+                if let Some((asset_type, extension)) = kind {
+                    recognized_hashes.insert(hash.clone());
+                    assets.push(WadAssetEntry {
+                        path: resolved_paths.get(&hash).cloned(),
+                        hash,
+                        size: bytes.len(),
+                        asset_type: asset_type.to_owned(),
+                        extension: extension.to_owned(),
+                    });
+                }
             }
         }
+        let completed = index + 1;
+        if completed % 32 == 0 || completed == total_chunks {
+            report_progress(completed, total_chunks);
+        }
     }
-    Ok(textures)
+    for asset in &mut assets {
+        if asset.path.is_none() {
+            asset.path = resolved_paths.get(&asset.hash).cloned();
+        }
+    }
+    for (hash, path) in &resolved_paths {
+        if recognized_hashes.contains(hash) {
+            continue;
+        }
+        let Some((asset_type, extension)) = classify_wad_asset_path(path) else { continue };
+        assets.push(WadAssetEntry {
+            path: Some(path.clone()),
+            hash: hash.clone(),
+            size: chunk_sizes.get(hash).copied().unwrap_or_default(),
+            asset_type: asset_type.to_owned(),
+            extension: extension.to_owned(),
+        });
+    }
+    Ok(assets)
+}
+
+fn extract_wad_path_references(bytes: &[u8]) -> Vec<String> {
+    const PATH_PREFIXES: [&str; 7] = [
+        "assets/", "data/", "characters/", "maps/", "map/", "sounds/", "skins/",
+    ];
+    const EXTENSIONS: [&str; 14] = [
+        ".wad.client", ".troybin", ".skn", ".skl", ".anm", ".tex", ".dds", ".scb",
+        ".sco", ".bin", ".bnk", ".wpk", ".wem", ".png",
+    ];
+    let is_path_byte = |byte: u8| byte.is_ascii_alphanumeric() || b"_./\\-".contains(&byte);
+    let mut references = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut offset = 0;
+
+    while offset < bytes.len() {
+        while offset < bytes.len() && !is_path_byte(bytes[offset]) { offset += 1; }
+        let start = offset;
+        while offset < bytes.len() && is_path_byte(bytes[offset]) { offset += 1; }
+        if start == offset { continue; }
+        let Ok(token) = std::str::from_utf8(&bytes[start..offset]) else { continue; };
+        let lower = token.to_ascii_lowercase();
+        let Some(path_start) = PATH_PREFIXES.iter().filter_map(|prefix| lower.find(prefix)).min() else { continue; };
+        let candidate = &token[path_start..];
+        let candidate_lower = candidate.to_ascii_lowercase();
+        let end = EXTENSIONS.iter()
+            .filter_map(|extension| candidate_lower.find(extension).map(|index| index + extension.len()))
+            .min();
+        let Some(end) = end else { continue; };
+        let path = candidate[..end].replace('\\', "/");
+        if path.matches('/').count() < 2 || !seen.insert(path.to_ascii_lowercase()) { continue; }
+        references.push(path);
+    }
+    references
+}
+
+fn classify_wad_asset(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    if bytes.starts_with(b"TEX\0") { return Some(("Textures", "tex")); }
+    if bytes.starts_with(b"DDS ") { return Some(("Textures", "dds")); }
+    if bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) { return Some(("Models", "skn")); }
+    if bytes.len() >= 8 && u32::from_le_bytes(bytes[4..8].try_into().ok()?) == 0x22FD4FC3 {
+        return Some(("Skeletons", "skl"));
+    }
+    if bytes.starts_with(b"r3d2canm") || bytes.starts_with(b"r3d2anmd") {
+        return Some(("Animations", "anm"));
+    }
+    if bytes.starts_with(b"SCB\0") { return Some(("Static models", "scb")); }
+    if bytes.starts_with(b"SCO\0") { return Some(("Static models", "sco")); }
+    if bytes.starts_with(b"#PROP_") || bytes.starts_with(b"#PTCH_") {
+        return Some(("Game data", "bin"));
+    }
+    if bytes.starts_with(b"PROP") {
+        if is_ability_property_bin(bytes) { return Some(("Abilities & VFX", "bin")); }
+        return Some(("Game data", "bin"));
+    }
+    if bytes.starts_with(b"PTCH") { return Some(("Game data", "bin")); }
+    if bytes.starts_with(b"BKHD") { return Some(("Audio", "bnk")); }
+    if bytes.starts_with(b"RIFF") { return Some(("Audio", "wem")); }
+    if bytes.starts_with(b"WPK\0") { return Some(("Audio", "wpk")); }
+    if bytes.starts_with(b"RW") { return Some(("WAD archives", "wad")); }
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) { return Some(("Images", "png")); }
+    None
+}
+
+fn classify_wad_asset_path(path: &str) -> Option<(&'static str, &'static str)> {
+    let path = path.to_ascii_lowercase();
+    let extension = path.rsplit_once('.')?.1;
+    match extension {
+        "troybin" => Some(("Abilities & VFX", "troybin")),
+        "tex" | "dds" => Some(("Textures", if extension == "dds" { "dds" } else { "tex" })),
+        "skn" => Some(("Models", "skn")),
+        "skl" => Some(("Skeletons", "skl")),
+        "anm" => Some(("Animations", "anm")),
+        "scb" => Some(("Static models", "scb")),
+        "sco" => Some(("Static models", "sco")),
+        "bin" => Some(("Game data", "bin")),
+        "bnk" | "wem" | "wpk" | "ogg" | "wav" => Some(("Audio", "audio")),
+        "png" | "jpg" | "jpeg" | "bmp" => Some(("Images", "image")),
+        _ => None,
+    }
+}
+
+fn is_ability_property_bin(bytes: &[u8]) -> bool {
+    let mut cursor = Cursor::new(bytes);
+    let Ok(bin) = PropertyBin::from_reader(&mut cursor) else { return false; };
+    let ability_classes = [
+        BinHash::from("SpellDataResource").0,
+        BinHash::from("SpellObjectDefinitionData").0,
+        BinHash::from("VfxSystemDefinitionData").0,
+    ];
+    bin.objects.values().any(|object| ability_classes.contains(&object.class_hash.0))
+}
+
+#[tauri::command]
+pub async fn read_package_model(
+    source_path: String,
+    entry_path: String,
+) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !entry_path.to_ascii_lowercase().ends_with(".skn") {
+            return Err("Choose an SKN model to preview.".to_owned());
+        }
+        let workspace = ensure_preview_workspace(&source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let model_file = find_project_file(&project_dir, &entry_path)?;
+        if fs::metadata(&model_file).map_err(|error| error.to_string())?.len() > 32 * 1024 * 1024 {
+            return Err("This model is over the 32 MB preview limit.".to_owned());
+        }
+        let bytes = fs::read(&model_file).map_err(|error| format!("Could not read SKN model: {error}"))?;
+        if !bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) {
+            return Err("This file is not a League SKN model.".to_owned());
+        }
+        Ok(bytes)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn read_package_model_preview_bundle(
+    source_path: String,
+    entry_path: String,
+) -> Result<ModelPreviewBundle, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !entry_path.to_ascii_lowercase().ends_with(".skn") {
+            return Err("Choose an SKN model to preview.".to_owned());
+        }
+        let workspace = ensure_preview_workspace(&source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let model_file = find_project_file(&project_dir, &entry_path)?;
+        if fs::metadata(&model_file).map_err(|error| error.to_string())?.len() > 32 * 1024 * 1024 {
+            return Err("This model is over the 32 MB preview limit.".to_owned());
+        }
+        let model_bytes = fs::read(&model_file).map_err(|error| format!("Could not read SKN model: {error}"))?;
+        if !model_bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) {
+            return Err("This file is not a League SKN model.".to_owned());
+        }
+
+        let model_relative = model_file.strip_prefix(&project_dir).map_err(|error| error.to_string())?;
+        let mut skeleton_file = model_relative.with_extension("skl");
+        let mut skeleton_path = project_dir.join(&skeleton_file);
+        if !skeleton_path.is_file() {
+            let parent = model_file.parent().unwrap_or(&project_dir);
+            let mut siblings = Vec::new();
+            collect_files_with_extension(parent, "skl", &mut siblings)
+                .map_err(|error| format!("Could not search for the model skeleton: {error}"))?;
+            skeleton_file = if siblings.len() == 1 {
+                siblings.remove(0).strip_prefix(&project_dir).map_err(|error| error.to_string())?.to_path_buf()
+            } else {
+                PathBuf::new()
+            };
+            skeleton_path = if skeleton_file.as_os_str().is_empty() { PathBuf::new() } else { project_dir.join(&skeleton_file) };
+        }
+
+        let (skeleton, skeleton_path_text) = if skeleton_path.is_file() {
+            let skeleton_bytes = fs::read(&skeleton_path).map_err(|error| format!("Could not read model skeleton: {error}"))?;
+            let skeleton = parse_skeleton_preview(&skeleton_bytes)?;
+            let relative = skeleton_path.strip_prefix(&project_dir).map_err(|error| error.to_string())?;
+            (Some(skeleton), Some(relative.to_string_lossy().replace('\\', "/")))
+        } else {
+            (None, None)
+        };
+
+        let mut animation_files = Vec::new();
+        collect_files_with_extension(&project_dir, "anm", &mut animation_files)
+            .map_err(|error| format!("Could not search for model animations: {error}"))?;
+        let scope = model_animation_scope(&entry_path);
+        animation_files.retain(|path| {
+            let relative = path.strip_prefix(&project_dir).unwrap_or(path).to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+            if let Some(scope) = &scope { relative.starts_with(scope) } else { path.parent() == model_file.parent() }
+        });
+        animation_files.sort();
+        animation_files.truncate(128);
+        let mut animations = Vec::new();
+        for path in animation_files {
+            let Ok(metadata) = fs::metadata(&path) else { continue };
+            if metadata.len() > 16 * 1024 * 1024 { continue; }
+            let Ok(bytes) = fs::read(&path) else { continue };
+            let Ok(asset) = AnimationAsset::from_reader(&mut Cursor::new(bytes.as_slice())) else { continue };
+            if !asset.duration().is_finite() || asset.duration() <= 0.0 || asset.duration() > 120.0 {
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(&project_dir) else { continue };
+            let relative_path = relative.to_string_lossy().replace('\\', "/");
+            let name = path.file_stem().and_then(|value| value.to_str()).unwrap_or("Animation").to_owned();
+            animations.push(AnimationPreviewInfo {
+                path: relative_path,
+                name,
+                duration: asset.duration(),
+                fps: if asset.fps().is_finite() { asset.fps() } else { 0.0 },
+                joint_count: asset.joint_count(),
+            });
+        }
+
+        Ok(ModelPreviewBundle { model_bytes, skeleton, skeleton_path: skeleton_path_text, animations })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn read_package_animation_preview(
+    source_path: String,
+    animation_path: String,
+    skeleton_path: String,
+) -> Result<AnimationPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let workspace = ensure_preview_workspace(&source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let animation_file = find_project_file(&project_dir, &animation_path)?;
+        let skeleton_file = find_project_file(&project_dir, &skeleton_path)?;
+        if fs::metadata(&animation_file).map_err(|error| error.to_string())?.len() > 32 * 1024 * 1024 {
+            return Err("This animation is over the 32 MB preview limit.".to_owned());
+        }
+        if fs::metadata(&skeleton_file).map_err(|error| error.to_string())?.len() > 32 * 1024 * 1024 {
+            return Err("The animation skeleton is over the 32 MB preview limit.".to_owned());
+        }
+        let animation_bytes = fs::read(&animation_file).map_err(|error| format!("Could not read animation: {error}"))?;
+        let skeleton_bytes = fs::read(&skeleton_file).map_err(|error| format!("Could not read animation skeleton: {error}"))?;
+        create_animation_preview(&animation_bytes, &skeleton_bytes, animation_file.file_stem().and_then(|value| value.to_str()).unwrap_or("Animation"))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn read_package_wad_model(
+    source_path: String,
+    wad_path: String,
+    hash: String,
+) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut wad = open_package_wad(&source_path, &wad_path)?;
+        let path_hash: WadHash = hash.parse().map_err(|_| "Invalid model hash.".to_owned())?;
+        let chunk = wad.chunks().get(path_hash).copied()
+            .ok_or_else(|| "This WAD no longer contains the selected model.".to_owned())?;
+        if chunk.uncompressed_size() > 32 * 1024 * 1024 {
+            return Err("This model is over the 32 MB preview limit.".to_owned());
+        }
+        let bytes = wad.load_chunk_decompressed(&chunk)
+            .map_err(|error| format!("Could not decompress WAD model: {error}"))?;
+        if !bytes.starts_with(&[0x33, 0x22, 0x11, 0x00]) {
+            return Err("This WAD entry is not an SKN model.".to_owned());
+        }
+        Ok(bytes.to_vec())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn read_package_wad_skeleton_preview(
+    source_path: String,
+    wad_path: String,
+    hash: String,
+) -> Result<SkeletonPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = read_wad_asset_bytes(&source_path, &wad_path, &hash)?;
+        parse_skeleton_preview(&bytes)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn read_package_wad_animation_preview(
+    source_path: String,
+    wad_path: String,
+    animation_hash: String,
+    skeleton_hashes: Vec<String>,
+    animation_name: String,
+) -> Result<AnimationPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut wad = open_package_wad(&source_path, &wad_path)?;
+        let animation_path_hash: WadHash = animation_hash.parse()
+            .map_err(|_| "Invalid WAD animation hash.".to_owned())?;
+        let animation_chunk = wad.chunks().get(animation_path_hash).copied()
+            .ok_or_else(|| "This WAD no longer contains the selected animation.".to_owned())?;
+        if animation_chunk.uncompressed_size() > 32 * 1024 * 1024 {
+            return Err("This animation is over the 32 MB preview limit.".to_owned());
+        }
+        let animation_bytes = wad.load_chunk_decompressed(&animation_chunk)
+            .map_err(|error| format!("Could not decompress WAD animation: {error}"))?
+            .to_vec();
+
+        let mut last_error = None;
+        let mut best_preview: Option<AnimationPreview> = None;
+        for skeleton_hash in skeleton_hashes {
+            let path_hash: WadHash = match skeleton_hash.parse() {
+                Ok(hash) => hash,
+                Err(_) => continue,
+            };
+            let Some(chunk) = wad.chunks().get(path_hash).copied() else { continue };
+            if chunk.uncompressed_size() > 32 * 1024 * 1024 {
+                last_error = Some("A candidate skeleton is over the 32 MB preview limit.".to_owned());
+                continue;
+            }
+            let skeleton_bytes = match wad.load_chunk_decompressed(&chunk) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    last_error = Some(format!("Could not decompress WAD skeleton: {error}"));
+                    continue;
+                }
+            };
+            match create_animation_preview(&animation_bytes, &skeleton_bytes, &animation_name) {
+                Ok(mut preview) => {
+                    preview.matched_skeleton_hash = Some(skeleton_hash);
+                    if best_preview.as_ref().map_or(true, |best| preview.matched_joint_count > best.matched_joint_count) {
+                        best_preview = Some(preview);
+                    }
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        best_preview.ok_or_else(|| last_error.unwrap_or_else(|| "No compatible skeleton was found for this animation.".to_owned()))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn read_wad_asset_bytes(source_path: &str, wad_path: &str, hash: &str) -> Result<Vec<u8>, String> {
+    let mut wad = open_package_wad(source_path, wad_path)?;
+    let path_hash: WadHash = hash.parse().map_err(|_| "Invalid WAD asset hash.".to_owned())?;
+    let chunk = wad.chunks().get(path_hash).copied()
+        .ok_or_else(|| "This WAD no longer contains the selected asset.".to_owned())?;
+    if chunk.uncompressed_size() > 32 * 1024 * 1024 {
+        return Err("This WAD asset is over the 32 MB preview limit.".to_owned());
+    }
+    wad.load_chunk_decompressed(&chunk)
+        .map(|bytes| bytes.to_vec())
+        .map_err(|error| format!("Could not decompress WAD asset: {error}"))
 }
 
 fn ensure_preview_workspace(source_path: &str) -> Result<PathBuf, String> {
@@ -389,7 +863,107 @@ fn normalize_package_path(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, String> {
+fn model_animation_scope(entry_path: &str) -> Option<String> {
+    let normalized = normalize_package_path(entry_path);
+    let parts: Vec<_> = normalized.split('/').collect();
+    if let Some(index) = parts.iter().position(|part| *part == "characters" || *part == "champions") {
+        if parts.get(index + 1).is_some() {
+            return Some(format!("{}/", parts[..=index + 1].join("/")));
+        }
+    }
+    normalized.rsplit_once('/').map(|(parent, _)| format!("{parent}/"))
+}
+
+fn collect_files_with_extension(root: &Path, extension: &str, found: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_files_with_extension(&path, extension, found)?;
+        } else if file_type.is_file()
+            && path.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case(extension))
+        {
+            found.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn parse_skeleton_preview(bytes: &[u8]) -> Result<SkeletonPreview, String> {
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err("The model skeleton is over the 32 MB preview limit.".to_owned());
+    }
+    let rig = RigResource::from_reader(&mut Cursor::new(bytes))
+        .map_err(|error| format!("Could not read model skeleton: {error}"))?;
+    Ok(SkeletonPreview {
+        name: rig.name().to_owned(),
+        asset_name: rig.asset_name().to_owned(),
+        influences: rig.influences().to_vec(),
+        joints: rig.joints().iter().map(|joint| SkeletonJointPreview {
+            name: joint.name().to_owned(),
+            hash: BinHash::hash_str(joint.name()).0,
+            id: joint.id(),
+            parent_id: joint.parent_id(),
+            local_translation: joint.local_translation().to_array(),
+            local_rotation: joint.local_rotation().to_array(),
+            local_scale: joint.local_scale().to_array(),
+            inverse_bind_matrix: joint.inverse_bind_transform().to_cols_array(),
+        }).collect(),
+    })
+}
+
+fn create_animation_preview(bytes: &[u8], skeleton_bytes: &[u8], name: &str) -> Result<AnimationPreview, String> {
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err("This animation is over the 32 MB preview limit.".to_owned());
+    }
+    let animation = AnimationAsset::from_reader(&mut Cursor::new(bytes))
+        .map_err(|error| format!("Could not read animation: {error}"))?;
+    let skeleton = parse_skeleton_preview(skeleton_bytes)?;
+    let duration = animation.duration();
+    if !duration.is_finite() || duration <= 0.0 || duration > 120.0 {
+        return Err("This animation has a duration Sable cannot preview.".to_owned());
+    }
+    let source_fps = animation.fps();
+    let requested_rate = if source_fps.is_finite() && source_fps > 0.0 { source_fps.min(30.0) } else { 24.0 };
+    let sample_count = ((duration * requested_rate).ceil() as usize).clamp(1, 600) + 1;
+    let sample_rate = (sample_count - 1) as f32 / duration;
+    let joint_hashes: Vec<_> = skeleton.joints.iter().map(|joint| joint.hash).collect();
+    let mut frames = Vec::with_capacity(sample_count);
+    let mut matched_joint_count = 0;
+    for frame_index in 0..sample_count {
+        let time = duration * frame_index as f32 / (sample_count - 1) as f32;
+        let evaluated = animation.evaluate(time);
+        let mut frame = Vec::new();
+        for (joint_index, hash) in joint_hashes.iter().enumerate() {
+            if let Some((rotation, translation, scale)) = evaluated.get(hash) {
+                frame.push(AnimationJointSample {
+                    joint: joint_index,
+                    rotation: rotation.to_array(),
+                    translation: translation.to_array(),
+                    scale: scale.to_array(),
+                });
+            }
+        }
+        matched_joint_count = matched_joint_count.max(frame.len());
+        frames.push(frame);
+    }
+    if matched_joint_count == 0 {
+        return Err("This animation does not contain tracks for the selected skeleton.".to_owned());
+    }
+    let fps = if animation.fps().is_finite() { animation.fps() } else { sample_rate };
+    Ok(AnimationPreview {
+        name: name.to_owned(),
+        duration,
+        fps,
+        sample_rate,
+        matched_skeleton_hash: None,
+        matched_joint_count,
+        frames,
+    })
+}
+
+fn find_project_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, String> {
     let relative = normalize_package_path(requested_path);
     if let Ok(candidate) = safe_child(project_dir, &relative) {
         if candidate.is_file() {
@@ -400,12 +974,12 @@ fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, St
     let basename = Path::new(&relative)
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| format!("Invalid WAD path: {requested_path}"))?;
+        .ok_or_else(|| format!("Invalid package path: {requested_path}"))?;
     let mut matches = Vec::new();
     collect_files_named(project_dir, basename, &mut matches)
-        .map_err(|error| format!("Could not search imported WAD files: {error}"))?;
+        .map_err(|error| format!("Could not search imported files: {error}"))?;
     match matches.len() {
-        0 => Err(format!("Could not find WAD archive {requested_path} in the imported project.")),
+        0 => Err(format!("Could not find {requested_path} in the imported project.")),
         1 => Ok(matches.remove(0)),
         _ => {
             let suffix = format!("/{}", relative);
@@ -415,10 +989,69 @@ fn find_wad_file(project_dir: &Path, requested_path: &str) -> Result<PathBuf, St
             {
                 Ok(exact.clone())
             } else {
-                Err(format!("More than one imported WAD matches {requested_path}."))
+                Err(format!("More than one imported file matches {requested_path}."))
             }
         }
     }
+}
+
+fn open_package_wad(source_path: &str, wad_path: &str) -> Result<Wad<Cursor<Vec<u8>>>, String> {
+    let source = Path::new(source_path);
+    let mut fantome_error = None;
+    if source.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("fantome")) {
+        match read_fantome_wad(source, wad_path) {
+            Ok(bytes) => {
+                return Wad::mount(Cursor::new(bytes))
+                    .map_err(|error| format!("Could not read WAD archive {wad_path}: {error}"));
+            }
+            Err(error) => fantome_error = Some(error),
+        }
+    }
+
+    let project_result = (|| {
+        let workspace = ensure_preview_workspace(source_path)?;
+        let manifest = read_workspace_manifest(&workspace)?;
+        let project_dir = safe_child(&workspace, &manifest.project_dir)?;
+        let wad_file = find_project_file(&project_dir, wad_path)?;
+        fs::read(&wad_file).map_err(|error| format!("Could not read WAD archive: {error}"))
+    })();
+    let bytes = match project_result {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if let Some(fantome_error) = fantome_error {
+                return Err(format!("{fantome_error} Imported project lookup also failed: {error}"));
+            }
+            return Err(error);
+        }
+    };
+    Wad::mount(Cursor::new(bytes))
+        .map_err(|error| format!("Could not read WAD archive: {error}"))
+}
+
+fn read_fantome_wad(source: &Path, requested_path: &str) -> Result<Vec<u8>, String> {
+    let file = File::open(source).map_err(|error| format!("Could not open the .fantome package: {error}"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| format!("Could not read the .fantome ZIP archive: {error}"))?;
+    let requested = normalize_package_path(requested_path);
+    let mut matching_index = None;
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index)
+            .map_err(|error| format!("Could not read a .fantome package entry: {error}"))?;
+        if normalize_package_path(entry.name()) == requested {
+            matching_index = Some(index);
+            break;
+        }
+    }
+    let index = matching_index.ok_or_else(|| format!("Could not find {requested_path} in the .fantome package."))?;
+    let mut entry = archive.by_index(index)
+        .map_err(|error| format!("Could not open {requested_path} in the .fantome package: {error}"))?;
+    if entry.size() > 512 * 1024 * 1024 {
+        return Err("This WAD archive is over the 512 MB preview limit.".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    entry.read_to_end(&mut bytes)
+        .map_err(|error| format!("Could not extract {requested_path} from the .fantome package: {error}"))?;
+    Ok(bytes)
 }
 
 fn collect_files_named(root: &Path, filename: &str, found: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -438,25 +1071,25 @@ fn collect_files_named(root: &Path, filename: &str, found: &mut Vec<PathBuf>) ->
 }
 
 fn preview_wad_texture(
-    workspace: &Path,
+    source_path: &str,
     requested: &str,
     display_path: &str,
 ) -> Result<TexturePreviewResult, String> {
     let (wad_relative, texture_name) = requested
         .rsplit_once('/')
-        .ok_or_else(|| format!("Sable could not locate this TEX texture: {display_path}"))?;
-    let hash_name = texture_name.strip_suffix(".tex").unwrap_or(texture_name);
+        .ok_or_else(|| format!("Sable could not locate this texture: {display_path}"))?;
+    let (hash_name, is_dds) = if let Some(name) = texture_name.strip_suffix(".dds") {
+        (name, true)
+    } else if let Some(name) = texture_name.strip_suffix(".tex") {
+        (name, false)
+    } else {
+        return Err(format!("This WAD texture path must end in .tex or .dds: {display_path}"));
+    };
     let hash_text = hash_name.strip_prefix("0x").unwrap_or(hash_name);
     let hash: WadHash = hash_text
         .parse()
         .map_err(|_| format!("This WAD texture has an invalid hash: {display_path}"))?;
-    let workspace_manifest = read_workspace_manifest(workspace)?;
-    let project_dir = safe_child(workspace, &workspace_manifest.project_dir)?;
-    let wad_file = find_wad_file(&project_dir, wad_relative)?;
-    let mut wad = Wad::mount(
-        File::open(&wad_file).map_err(|error| format!("Could not open WAD archive: {error}"))?,
-    )
-    .map_err(|error| format!("Could not read WAD archive: {error}"))?;
+    let mut wad = open_package_wad(source_path, wad_relative)?;
     let chunk = wad
         .chunks()
         .get(hash)
@@ -465,6 +1098,12 @@ fn preview_wad_texture(
     let tex_bytes = wad
         .load_chunk_decompressed(&chunk)
         .map_err(|error| format!("Could not decompress this WAD texture: {error}"))?;
+    if is_dds {
+        if !tex_bytes.starts_with(b"DDS ") {
+            return Err(format!("This WAD entry is not a DDS texture: {display_path}"));
+        }
+        return decode_dds_preview(&tex_bytes, display_path);
+    }
     if !tex_bytes.starts_with(b"TEX\0") {
         return Err(format!("This WAD entry is not a TEX texture: {display_path}"));
     }
@@ -482,6 +1121,35 @@ fn preview_wad_texture(
         .write_to(&mut output, image::ImageFormat::Png)
         .map_err(|error| format!("Could not encode WAD texture preview: {error}"))?;
 
+    Ok(TexturePreviewResult {
+        png_bytes: output.into_inner(),
+        texture_path: display_path.to_owned(),
+    })
+}
+
+fn decode_dds_preview(bytes: &[u8], display_path: &str) -> Result<TexturePreviewResult, String> {
+    if !bytes.starts_with(b"DDS ") {
+        return Err(format!("This is not a DDS texture: {display_path}"));
+    }
+    let dds = image_dds::ddsfile::Dds::read(&mut Cursor::new(bytes))
+        .map_err(|error| format!("Could not read DDS texture {display_path}: {error}"))?;
+    let width = dds.get_width();
+    let height = dds.get_height();
+    let pixel_count = u64::from(width) * u64::from(height);
+    if width == 0 || height == 0 || pixel_count > 20_000_000 {
+        return Err(format!(
+            "This DDS texture has dimensions Sable cannot safely preview: {display_path}"
+        ));
+    }
+    let surface = image_dds::SurfaceRgba8::decode_layers_mipmaps_dds(&dds, 0..1, 0..1)
+        .map_err(|error| format!("Could not decode DDS texture {display_path}: {error}"))?;
+    let decoded = surface
+        .into_image()
+        .map_err(|error| format!("Could not convert DDS texture {display_path}: {error}"))?;
+    let mut output = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(decoded)
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not encode DDS preview: {error}"))?;
     Ok(TexturePreviewResult {
         png_bytes: output.into_inner(),
         texture_path: display_path.to_owned(),
