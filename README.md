@@ -4,9 +4,7 @@ Sable is a Windows desktop workspace for opening League of Legends .fantome and 
 
 ## Try the Windows app
 
-1. Open the repository's Actions tab.
-2. Open the latest successful **Build Windows executable** run.
-3. Download and unzip the **Sable-windows-exe** artifact, then launch sable.exe.
+Download the repository ZIP from **Code → Download ZIP**, extract it, and launch `Sable-windows.exe` from the extracted folder. The same executable is also available as the **Sable-windows-exe** artifact on the latest successful run in the Actions tab.
 
 The app uses the WebView2 runtime available on most current Windows installations. This early build is unsigned and distributed as a workflow artifact.
 
